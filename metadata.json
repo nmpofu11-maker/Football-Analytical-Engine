@@ -1,0 +1,6 @@
+{
+  "name": "Football Analytical Engine",
+  "description": "A highly specialised, bias-free football analytical engine designed to ingest pitch statistics and output clean, mathematical weight structures for 80 favorite teams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

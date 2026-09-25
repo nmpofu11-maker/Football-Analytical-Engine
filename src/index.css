@@ -1,0 +1,343 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   ★ DUAL-THEME DYNAMIC CONFIGURATION ENGINE ★
+   ========================================================================= */
+
+/* 1. Light Theme Definitions */
+:root {
+  --bg-app: #F8FAFC;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --bg-badge: #F1F5F9;
+  --bg-accent: #F0FDF4;
+  --bg-accent-badge: #E8F5E9;
+  --border-primary: #E2E8F0;
+  
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --text-accent: #15803D;
+  
+  --btn-active-bg: #ffffff;
+  --btn-active-text: #15803D;
+  --btn-active-border: #E2E8F0;
+  
+  --input-bg: #ffffff;
+  --input-border: #E2E8F0;
+  --input-text: #0F172A;
+  
+  --calendar-filter: none;
+  --blue-bg: #eff6ff;
+  --blue-text: #2563eb;
+  
+  --warn-bg: #fef3c7;
+  --warn-border: #f59e0b;
+  --warn-text: #b45309;
+  
+  --row-hover-bg: #f8fafc;
+}
+
+/* 2. Premium Ultra-Dark Green, Black, & Blue Variable Overrides */
+html.dark-theme,
+body.dark-theme,
+:root.dark-theme,
+.dark-theme {
+  --bg-app: #010705;             /* Deep dark obsidian green pitch */
+  --bg-card: #041411;            /* Dark forest green structural card */
+  --bg-header: #010a08;          /* Dark obsidian pitch slate header */
+  --bg-badge: #061e1a;           /* Deep dark green badge */
+  --bg-accent: #02241b;          /* Forest highlight box */
+  --bg-accent-badge: #013326;    /* Dark pine team highlights */
+  --border-primary: #0c332a;     /* Deep structural border line */
+  
+  --text-primary: #ffffff;       /* Pure white readability */
+  --text-secondary: #a7f3d0;     /* Highly visible light-mint text */
+  --text-muted: #6ee7b7;         /* High-contrast bright mint */
+  --text-accent: #10b981;        /* Radiant neon emerald */
+  
+  --btn-active-bg: #072620;      /* Dark active button backer */
+  --btn-active-text: #10b981;    /* Bright active text */
+  --btn-active-border: #10b981;  /* Bright active border */
+  
+  --input-bg: #010807;           /* Pitch black turf input */
+  --input-border: #0c332a;       /* Dark forest input outline */
+  --input-text: #ffffff;         /* Crisp typed text */
+  
+  --calendar-filter: invert(1) sepia(1) saturate(5) hue-rotate(90deg);
+  --blue-bg: #031424;            /* Midnight blue information blocks */
+  --blue-text: #60a5fa;          /* Luminous sky blue text */
+  
+  --warn-bg: #211201;            /* Roast amber warning highlight */
+  --warn-border: #b45309;        /* Deep amber stroke */
+  --warn-text: #fde047;          /* High contrast neon gold text */
+  
+  --row-hover-bg: #05211b;       /* Hover highlight forest row */
+}
+
+/* 3. Global Structural Elements - Core Layout mapping */
+body, html, #root {
+  background-color: var(--bg-app) !important;
+  color: var(--text-primary) !important;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Custom themed scrollbars for dense analysis views */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-accent);
+}
+
+/* Specific main outer layout page background */
+.bg-\[\#F8FAFC\] {
+  background-color: var(--bg-app) !important;
+}
+
+/* Force any potential white background to the dynamic theme variable background */
+.bg-white,
+div.bg-white,
+section.bg-white,
+[class*="bg-white"] {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Main Top Header Area styling */
+header,
+header.bg-white {
+  background-color: var(--bg-header) !important;
+  border-bottom: 1px solid var(--border-primary) !important;
+}
+
+/* Nested Specificity Overrides for Dark Mode (Guarantees no white leaks) */
+.dark-theme .bg-white,
+.dark-theme div.bg-white,
+.dark-theme section.bg-white,
+.dark-theme [class*="bg-white"],
+.dark-theme .bg-slate-50,
+.dark-theme .bg-gray-50,
+.dark-theme .bg-slate-100,
+.dark-theme .bg-gray-100,
+.dark-theme .bg-slate-200,
+.dark-theme .bg-gray-200,
+.dark-theme .bg-\[\#F8FAFC\],
+.dark-theme .bg-\[\#F1F5F9\],
+.dark-theme .bg-\[\#FAFAFA\],
+.dark-theme [class*="bg-[#F8FAFC]"],
+.dark-theme [class*="bg-[#F1F5F9]"] {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Specific main inner container page background */
+.dark-theme main,
+.dark-theme .min-h-screen {
+  background-color: var(--bg-app) !important;
+}
+
+/* 4. Muted / Subtext Elements */
+.text-\[\#0F172A\],
+h1, h2, h3, h4, h5,
+.text-slate-900,
+.text-gray-900,
+.font-bold {
+  color: var(--text-primary) !important;
+}
+
+.text-\[\#334155\],
+.text-\[\#475569\],
+.text-\[\#64748B\],
+.text-slate-700,
+.text-slate-600,
+.text-gray-600,
+.text-gray-500 {
+  color: var(--text-secondary) !important;
+}
+
+.text-slate-500,
+.text-slate-400,
+.text-gray-400 {
+  color: var(--text-muted) !important;
+}
+
+/* Borders & Lines overrides */
+.border-\[\#E2E8F0\],
+.border-slate-200,
+.border-gray-200,
+.border-gray-100 {
+  border-color: var(--border-primary) !important;
+}
+
+/* Standard Gray Badges mapping */
+.bg-\[\#F1F5F9\],
+.bg-slate-100,
+.bg-gray-100,
+[class*="bg-slate-100"],
+[class*="bg-gray-100"] {
+  background-color: var(--bg-badge) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-muted) !important;
+}
+
+/* Today's Active Match background highlights */
+.bg-\[\#F0FDF4\],
+.bg-green-50,
+.bg-[#F0FDF4],
+[class*="bg-[#F0FDF4]"],
+[class*="bg-green-50"] {
+  background-color: var(--bg-accent) !important;
+  border-color: var(--text-accent) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* Today's highlight team badges */
+.bg-\[\#E8F5E9\],
+.bg-[#E8F5E9],
+[class*="bg-[#E8F5E9]"] {
+  background-color: var(--bg-accent-badge) !important;
+  border-color: var(--text-accent) !important;
+  color: var(--text-accent) !important;
+}
+
+/* 5. Custom Form Controls, Selects, & Textareas overrides */
+textarea,
+select,
+input,
+input[type="text"],
+input[type="number"] {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  border: 1.5px solid var(--input-border) !important;
+}
+
+textarea:focus,
+select:focus,
+input:focus {
+  border-color: var(--text-accent) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Manual Calendar indicators alignment */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: var(--calendar-filter) !important;
+}
+
+/* 6. Active Panel Tab Buttons mapping */
+button.bg-white.text-\[\#15803D\],
+button[class*="bg-white text-[#15803D]"] {
+  background-color: var(--btn-active-bg) !important;
+  color: var(--btn-active-text) !important;
+  border: 1px solid var(--btn-active-border) !important;
+}
+
+button.text-\[\#475569\] {
+  color: var(--text-secondary) !important;
+}
+
+/* Table element layout states */
+tr:hover,
+div.hover\:bg-slate-50:hover,
+div.hover\:border-[#15803D]:hover {
+  background-color: var(--row-hover-bg) !important;
+}
+
+td, th {
+  border-color: var(--border-primary) !important;
+}
+
+/* 7. Additional Highlights and Alerts */
+
+/* Informational blue metrics badges */
+.bg-blue-50,
+[class*="bg-blue-50"] {
+  background-color: var(--blue-bg) !important;
+  border-color: var(--blue-text) !important;
+  color: var(--blue-text) !important;
+}
+.text-blue-600 {
+  color: var(--blue-text) !important;
+}
+
+/* Derby warning panels */
+.bg-amber-100,
+[class*="bg-amber-100"] {
+  background-color: var(--warn-bg) !important;
+  border-color: var(--warn-border) !important;
+  color: var(--warn-text) !important;
+}
+.text-amber-800 {
+  color: var(--warn-text) !important;
+}
+
+/* Clear Reset Delete warnings */
+.bg-red-50,
+[class*="bg-red-50"] {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+  border-color: #ef4444 !important;
+  color: #fca5a5 !important;
+}
+.text-red-600 {
+  color: #ef4444 !important;
+}
+.text-red-600:hover {
+  color: #fca5a5 !important;
+}
+
+/* =========================================================================
+   ★ STRICT HIGH-SPECIFICITY OVERRIDES FOR INDIVIDUAL ELEMENTS IN DARK MODE ★
+   ========================================================================= */
+
+.dark-theme .bg-\[\#FAF9F6\],
+.dark-theme [class*="bg-[#FAF9F6]"] {
+  background-color: #020e0c !important; /* Dark obsidian console background */
+  border: 1px solid #0c332a !important;
+  color: #a7f3d0 !important; /* Elegant light-mint text */
+}
+
+.dark-theme .bg-\[\#E2E8F0\],
+.dark-theme [class*="bg-[#E2E8F0]"] {
+  background-color: #06241e !important; /* Deep forest-green badge */
+  border-color: #0c332a !important;
+  color: #a7f3d0 !important;
+}
+
+.dark-theme .bg-\[\#E8F5E9\],
+.dark-theme [class*="bg-[#E8F5E9]"] {
+  background-color: #012e22 !important; /* Dark emerald highlight */
+  border: 1px solid #10b981 !important;
+  color: #10b981 !important;
+}
+
+.dark-theme .bg-\[\#F0FDF4\],
+.dark-theme [class*="bg-[#F0FDF4]"],
+.dark-theme .bg-\[\#F0FDF4\]\/30,
+.dark-theme [class*="bg-[#F0FDF4]/30"] {
+  background-color: #022018 !important; /* Deep moss green highlight container */
+  border: 1.5px solid #10b981 !important;
+  color: #ecfdf5 !important;
+}
+
+/* Ensure child text and spans within these panels adapt to theme color values */
+.dark-theme .bg-\[\#F0FDF4\] h3,
+.dark-theme .bg-\[\#F0FDF4\] span,
+.dark-theme .bg-\[\#FAF9F6\] span {
+  color: #ecfdf5 !important;
+}
+.dark-theme .bg-\[\#E8F5E9\] span,
+.dark-theme .bg-\[\#E8F5E9\] strong {
+  color: #10b981 !important;
+}
+
