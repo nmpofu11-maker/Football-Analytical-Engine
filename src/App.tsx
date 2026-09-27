@@ -89,6 +89,16 @@ export default function App() {
   const [coeffHistoryLogs, setCoeffHistoryLogs] = useState<any[]>([]);
 
   useEffect(() => {
+    fetch("/api/matrices")
+      .then(res => res.json())
+      .then(data => {
+        if (data.matrices) {
+          setTeamMatrices(data.matrices);
+          localStorage.setItem("football_engine_matrices", JSON.stringify(data.matrices));
+        }
+      })
+      .catch(e => console.warn("Failed to fetch server matrices:", e));
+
     fetch("/api/results/verified")
       .then(res => res.json())
       .then(data => {

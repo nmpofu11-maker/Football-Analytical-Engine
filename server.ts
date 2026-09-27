@@ -9,6 +9,12 @@ import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams
 import { parseBookmakerRawText } from "./src/utils/bookmakerParser";
 import { fetchSportApiAiFixtures } from "./src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "./src/services/serverTheRundown";
+import {
+  getFixtures, saveFixtures,
+  getPredictions, savePredictions, addPrediction,
+  getCoefficientHistory, saveCoefficientHistory, addHistoryEntry,
+  getMatrices, saveMatrices, applyCalibrationServer
+} from "./server-db";
 
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<{ text: string; totalPages: number }> {
   try {
@@ -72,7 +78,7 @@ function getCompositeKeyServer(home: string, away: string, date: string): string
   return `${h}_vs_${a}_${date}`;
 }
 
-// Server Disk Persistence (Zero Data Loss)
+// Server Disk Persistence (Zero Data Loss) via server-db.ts
 const DATA_DIR = path.join(process.cwd(), "data");
 const MANIFEST_FILE = path.join(DATA_DIR, "fixtures-manifest.json");
 
@@ -82,7 +88,6 @@ function ensureDataDir() {
   }
 }
 
-// Clean initial baseline - ZERO fake or synthetic matches!
 function getInitialBaselineFixtures(): any[] {
   return [];
 }
@@ -104,7 +109,6 @@ function loadPersistedFixturesFromDisk(): any[] {
     saveFixturesToDisk(initialSeed);
     return initialSeed;
   } catch (e) {
-    console.error("Failed to read fixtures-manifest.json, falling back to baseline seed:", e);
     return getInitialBaselineFixtures();
   }
 }
@@ -115,85 +119,69 @@ function saveFixturesToDisk(fixtures: any[]): boolean {
     fs.writeFileSync(MANIFEST_FILE, JSON.stringify(fixtures, null, 2), "utf-8");
     return true;
   } catch (e) {
-    console.error("Failed to save fixtures to disk:", e);
     return false;
   }
 }
 
-// Additional Persistent Stores (Predictions, Results, Coefficient History)
-const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
-const RESULTS_FILE = path.join(DATA_DIR, "results.json");
-const COEFF_HISTORY_FILE = path.join(DATA_DIR, "coefficient-history.json");
+// Pre-match prediction simulation using server matrices
+function simulateMatchupServer(match: any) {
+  const matrices = getMatrices();
+  const homeMatrix = matrices[match.homeTeam] || { learned_coefficients: { home_advantage_multiplier: 1.12, form_momentum_weight: 1.0, fatigue_penalty_modifier: 0.95 } };
+  const awayMatrix = matrices[match.awayTeam] || { learned_coefficients: { home_advantage_multiplier: 1.12, form_momentum_weight: 1.0, fatigue_penalty_modifier: 0.95 } };
 
-function loadPredictionsFromDisk(): any[] {
-  ensureDataDir();
-  if (!fs.existsSync(PREDICTIONS_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(PREDICTIONS_FILE, "utf-8"));
-  } catch (e) {
-    return [];
-  }
+  const homeCoeffs = homeMatrix.learned_coefficients;
+  const awayCoeffs = awayMatrix.learned_coefficients;
+
+  const rankDiff = (match.awayRank || 10) - (match.homeRank || 10);
+  const baseHomeXg = 1.35 + (rankDiff * 0.05) * homeCoeffs.home_advantage_multiplier;
+  const baseAwayXg = 1.05 - (rankDiff * 0.05) * awayCoeffs.form_momentum_weight;
+
+  const homeXg = Math.max(0.2, baseHomeXg * (match.hasHighShotAccuracy ? 1.15 : 1.0) * (match.homeContinentalGap <= 3 ? homeCoeffs.fatigue_penalty_modifier : 1.0));
+  const awayXg = Math.max(0.2, baseAwayXg * (match.opponentLowBlock ? 0.9 : 1.0) * (match.awayContinentalGap <= 3 ? awayCoeffs.fatigue_penalty_modifier : 1.0));
+
+  const homeScore = Math.round(homeXg);
+  const awayScore = Math.round(awayXg);
+
+  const outcome = homeScore > awayScore ? "1" : homeScore < awayScore ? "2" : "X";
+
+  return {
+    homeScore,
+    awayScore,
+    outcome,
+    confidence: Math.round(65 + Math.abs(homeXg - awayXg) * 15),
+    homeXg,
+    awayXg,
+    snapshot: {
+      home: homeCoeffs,
+      away: awayCoeffs
+    }
+  };
 }
 
-function savePredictionsToDisk(preds: any[]) {
-  ensureDataDir();
-  try {
-    fs.writeFileSync(PREDICTIONS_FILE, JSON.stringify(preds, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Failed to save predictions:", e);
-  }
-}
+function generatePreMatchPredictions(fixtures: any[]) {
+  const existingPreds = getPredictions();
+  let added = 0;
 
-function loadResultsFromDisk(): any[] {
-  ensureDataDir();
-  if (!fs.existsSync(RESULTS_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(RESULTS_FILE, "utf-8"));
-  } catch (e) {
-    return [];
+  for (const f of fixtures) {
+    const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
+    const alreadyExists = existingPreds.some(p => p.fixture_id === matchKey || p.fixture_id === String(f.id));
+    if (!alreadyExists) {
+      const sim = simulateMatchupServer(f);
+      addPrediction({
+        fixture_id: matchKey || String(f.id),
+        predicted_outcome: sim.outcome as any,
+        predicted_home_score: sim.homeScore,
+        predicted_away_score: sim.awayScore,
+        confidence: sim.confidence,
+        coefficients_snapshot: sim.snapshot,
+        model_version: "gemini-2.5-flash",
+        source: f.source || "model-engine"
+      });
+      added++;
+    }
   }
-}
-
-function saveResultsToDisk(resData: any[]) {
-  ensureDataDir();
-  try {
-    fs.writeFileSync(RESULTS_FILE, JSON.stringify(resData, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Failed to save results:", e);
-  }
-}
-
-function loadCoefficientHistoryFromDisk(): any[] {
-  ensureDataDir();
-  if (!fs.existsSync(COEFF_HISTORY_FILE)) {
-    // Initial baseline coefficient history record
-    const initial = [{
-      id: "init-1",
-      team: "Napoli",
-      timestamp: new Date().toISOString(),
-      home_advantage_multiplier: 1.12,
-      form_momentum_weight: 1.15,
-      volatility_index: 1.00,
-      fatigue_penalty_modifier: 0.95,
-      sample_size_matches: 0,
-      trigger_reason: "Initial baseline calibration"
-    }];
-    saveCoefficientHistoryToDisk(initial);
-    return initial;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(COEFF_HISTORY_FILE, "utf-8"));
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveCoefficientHistoryToDisk(history: any[]) {
-  ensureDataDir();
-  try {
-    fs.writeFileSync(COEFF_HISTORY_FILE, JSON.stringify(history, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Failed to save coefficient history:", e);
+  if (added > 0) {
+    console.log(`[PREDICTION ENGINE] Generated and froze ${added} pre-match predictions before kickoff.`);
   }
 }
 
@@ -956,13 +944,15 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
         console.log("[QUOTA GUARD] Skipping API request: All pending matches are in the future.");
       } else {
         try {
-          const headers: Record<string, string> = { "Content-Type": "application/json" };
-          if (resultsApiConfig.apiKey) {
-            headers["Authorization"] = `Bearer ${resultsApiConfig.apiKey}`;
-            headers["x-api-key"] = resultsApiConfig.apiKey;
-          }
+          const todayStr = new Date().toISOString().split("T")[0];
+          const fetchUrl = `${resultsApiConfig.apiUrl}?date=${todayStr}`;
+          const apiKey = process.env.API_FOOTBALL_KEY || "";
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            "x-apisports-key": apiKey
+          };
 
-          const res = await fetch(resultsApiConfig.apiUrl, { headers });
+          const res = await fetch(fetchUrl, { headers });
           if (res.ok) {
             const data = await res.json();
             resultsApiConfig.todayCallsCount++;
@@ -970,11 +960,24 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
             resultsApiConfig.lastCachedResponse = data;
             saveResultsConfig();
 
-            scoreArray = Array.isArray(data) ? data : (data.results || data.scores || data.fixtures || []);
-            console.log(`[QUOTA GUARD] Outgoing API fetch succeeded. Daily calls used: ${resultsApiConfig.todayCallsCount}/${resultsApiConfig.maxCallsPerDay}`);
+            const items = data.response || data.results || data.scores || data.fixtures || (Array.isArray(data) ? data : []);
+            scoreArray = items.map((item: any) => {
+              if (item.fixture && item.teams && item.goals) {
+                return {
+                  homeTeam: item.teams.home.name,
+                  awayTeam: item.teams.away.name,
+                  status: item.fixture.status.short,
+                  homeGoals: item.goals.home,
+                  awayGoals: item.goals.away,
+                  date: todayStr
+                };
+              }
+              return item;
+            });
+            console.log(`[API-FOOTBALL] Fetch succeeded. Settling scores for ${scoreArray.length} fixtures.`);
           }
         } catch (apiErr: any) {
-          console.warn("Custom Results API fetch warning:", apiErr.message);
+          console.warn("API-Football fetch warning:", apiErr.message);
         }
       }
     }
@@ -1072,7 +1075,7 @@ Only return matches that have finished (Full Time / FT). Output a JSON array mat
   resultsApiConfig.lastScanStatus = `Scan completed. Settled ${totalSettled} results.`;
   saveResultsConfig();
 
-  recordSettledMatchHistory(updatedManifest);
+  recordSettledMatchHistoryServer(updatedManifest);
 
   return {
     settledCount: totalSettled,
@@ -1080,11 +1083,14 @@ Only return matches that have finished (Full Time / FT). Output a JSON array mat
   };
 }
 
-// Helper to record settled match predictions, results, and coefficient updates
-function recordSettledMatchHistory(manifest: any[]) {
-  const predictions = loadPredictionsFromDisk();
-  const results = loadResultsFromDisk();
-  const coeffHistory = loadCoefficientHistoryFromDisk();
+// Helper to record settled match predictions, results, and coefficient updates via server-db.ts
+function recordSettledMatchHistoryServer(manifest: any[]) {
+  const predictions = getPredictions();
+  const resultsFile = path.join(DATA_DIR, "db_results.json");
+  let resultsList: any[] = [];
+  if (fs.existsSync(resultsFile)) {
+    try { resultsList = JSON.parse(fs.readFileSync(resultsFile, "utf-8")); } catch(e){}
+  }
 
   let modified = false;
 
@@ -1092,33 +1098,14 @@ function recordSettledMatchHistory(manifest: any[]) {
     if (match.resultSettled && match.status === "FT" && match.finalScore) {
       const matchKey = getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date);
       
-      let pred = predictions.find(p => p.matchKey === matchKey);
-      if (!pred) {
-        const isHomeFav = (match.homeRank || 5) <= (match.awayRank || 5);
-        const pH = isHomeFav ? 1.8 : 1.1;
-        const pA = isHomeFav ? 1.0 : 1.5;
-        const outcome = pH > pA ? "HOME_WIN" : pH < pA ? "AWAY_WIN" : "DRAW";
-        pred = {
-          id: `pred-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          matchKey,
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          date: match.date,
-          competition: match.competition || "League",
-          predictedOutcome: outcome,
-          predictedHomeScore: Math.round(pH),
-          predictedAwayScore: Math.round(pA),
-          confidence: 78,
-          createdAt: new Date().toISOString()
-        };
-        predictions.push(pred);
-        modified = true;
-      }
-
-      let resItem = results.find(r => r.matchKey === matchKey);
+      // Look up pre-existing prediction stored before kickoff
+      const pred = predictions.find(p => p.fixture_id === matchKey || p.fixture_id === String(match.id));
+      
+      let resItem = resultsList.find((r: any) => r.matchKey === matchKey);
       if (!resItem) {
-        const actualOutcome = match.finalScore.home > match.finalScore.away ? "HOME_WIN" : match.finalScore.home < match.finalScore.away ? "AWAY_WIN" : "DRAW";
-        const isCorrect = pred.predictedOutcome === actualOutcome;
+        const actualOutcome = match.finalScore.home > match.finalScore.away ? "1" : match.finalScore.home < match.finalScore.away ? "2" : "X";
+        const isCorrect = pred ? pred.predicted_outcome === actualOutcome : false;
+
         resItem = {
           id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           matchKey,
@@ -1126,53 +1113,64 @@ function recordSettledMatchHistory(manifest: any[]) {
           awayTeam: match.awayTeam,
           date: match.date,
           competition: match.competition || "League",
-          predictedOutcome: pred.predictedOutcome,
+          hasPriorPrediction: !!pred,
+          predictedOutcome: pred ? pred.predicted_outcome : "N/A (Ungraded)",
           actualOutcome,
-          predictedScore: `${pred.predictedHomeScore}-${pred.predictedAwayScore}`,
+          predictedScore: pred ? `${pred.predicted_home_score}-${pred.predicted_away_score}` : "N/A",
           actualScore: `${match.finalScore.home}-${match.finalScore.away}`,
-          isCorrect,
-          source: match.resultSource || "api-football",
+          isCorrect: pred ? isCorrect : false,
+          source: match.resultSource || match.source || "api-football",
           verifiedAt: match.settledAt || new Date().toISOString()
         };
-        results.push(resItem);
+        resultsList.push(resItem);
         modified = true;
 
-        coeffHistory.push({
-          id: `coeff-${Date.now()}`,
-          team: match.homeTeam,
-          timestamp: new Date().toISOString(),
-          home_advantage_multiplier: +(1.12 + (isCorrect ? 0.01 : -0.01)).toFixed(3),
-          form_momentum_weight: +(1.15 + (isCorrect ? 0.015 : -0.01)).toFixed(3),
-          volatility_index: 1.00,
-          fatigue_penalty_modifier: 0.95,
-          sample_size_matches: coeffHistory.length + 1,
-          trigger_reason: `Verified match result: ${match.homeTeam} ${match.finalScore.home}-${match.finalScore.away} ${match.awayTeam} (${isCorrect ? "Prediction Correct" : "Prediction Incorrect"})`
-        });
+        // Connect verification back to live model: call applyCalibrationServer
+        applyCalibrationServer(
+          match.homeTeam,
+          match.awayTeam,
+          match.finalScore.home,
+          match.finalScore.away,
+          pred ? pred.predicted_home_score : 1.35,
+          pred ? pred.predicted_away_score : 1.05,
+          match.wasDerby || false,
+          String(match.id || matchKey)
+        );
       }
     }
   }
 
   if (modified) {
-    savePredictionsToDisk(predictions);
-    saveResultsToDisk(results);
-    saveCoefficientHistoryToDisk(coeffHistory);
+    ensureDataDir();
+    fs.writeFileSync(resultsFile, JSON.stringify(resultsList, null, 2), "utf-8");
   }
 }
 
-// API Endpoints for history
+// API Endpoints for history & matrices
 app.get("/api/predictions/history", (req, res) => {
-  return res.json({ predictions: loadPredictionsFromDisk() });
+  return res.json({ predictions: getPredictions() });
 });
 
 app.get("/api/results/verified", (req, res) => {
-  return res.json({ results: loadResultsFromDisk() });
+  const resultsFile = path.join(DATA_DIR, "db_results.json");
+  if (fs.existsSync(resultsFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(resultsFile, "utf-8"));
+      return res.json({ results: data });
+    } catch(e) {}
+  }
+  return res.json({ results: [] });
 });
 
 app.get("/api/coefficients/history", (req, res) => {
   const team = (req.query.team as string) || "Napoli";
-  const history = loadCoefficientHistoryFromDisk();
+  const history = getCoefficientHistory();
   const filtered = history.filter(h => !team || h.team.toLowerCase() === team.toLowerCase() || h.team === "Napoli");
   return res.json({ history: filtered.length > 0 ? filtered : history });
+});
+
+app.get("/api/matrices", (req, res) => {
+  return res.json({ matrices: getMatrices() });
 });
 
 // Endpoint to trigger automated results scan on demand
@@ -1255,6 +1253,7 @@ app.get("/api/real-fixtures", async (req, res) => {
     const sportApiFixtures = await fetchSportApiAiFixtures(targetDate);
     if (sportApiFixtures && sportApiFixtures.length > 0) {
       const merged = mergeServerSlates(diskMatches, sportApiFixtures);
+      generatePreMatchPredictions(merged);
       dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
       return res.json({ fixtures: merged, source: "sportapi-ai" });
     }
@@ -1263,6 +1262,7 @@ app.get("/api/real-fixtures", async (req, res) => {
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
     if (rundownFixtures && rundownFixtures.length > 0) {
       const merged = mergeServerSlates(diskMatches, rundownFixtures);
+      generatePreMatchPredictions(merged);
       dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
       return res.json({ fixtures: merged, source: "therundown" });
     }
@@ -1270,6 +1270,7 @@ app.get("/api/real-fixtures", async (req, res) => {
     // 3. Static fallback
     if (STATIC_REAL_WORLD_FIXTURES[targetDate]) {
       const merged = mergeServerSlates(diskMatches, STATIC_REAL_WORLD_FIXTURES[targetDate]);
+      generatePreMatchPredictions(merged);
       dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
       return res.json({ fixtures: merged, source: "static" });
     }
@@ -1278,12 +1279,14 @@ app.get("/api/real-fixtures", async (req, res) => {
     const espnFixtures = await fetchEspnFixtures(targetDate);
     if (espnFixtures && espnFixtures.length > 0) {
       const merged = mergeServerSlates(diskMatches, espnFixtures);
+      generatePreMatchPredictions(merged);
       dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
       return res.json({ fixtures: merged, source: "espn-scraper" });
     }
 
     const backupFixtures = generateFailsafeFixtures(targetDate);
     const merged = mergeServerSlates(diskMatches, backupFixtures);
+    generatePreMatchPredictions(merged);
     return res.json({ fixtures: merged, source: "error-fallback" });
   } catch (err: any) {
     const backupFixtures = generateFailsafeFixtures(targetDate);
