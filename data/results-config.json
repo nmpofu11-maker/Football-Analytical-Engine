@@ -1,0 +1,16 @@
+{
+  "apiUrl": "https://dashboard.api-football.com/profile?access",
+  "apiKey": "3e14631392e28d28c8f4fa3faba1e7b1",
+  "autoScanEnabled": false,
+  "maxCallsPerDay": 10,
+  "todayCallsCount": 0,
+  "callsResetDateStr": "2026-09-25",
+  "scanIntervalHours": 4,
+  "onlyScanDuringMatches": true,
+  "cacheTtlMinutes": 120,
+  "lastCachedResponse": null,
+  "lastCachedTimestamp": 0,
+  "lastScanTimestamp": 0,
+  "lastScanStatus": "Idle",
+  "lastScanSettledCount": 0
+}

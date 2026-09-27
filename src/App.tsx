@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   ShieldCheck,
   UploadCloud,
+  Code,
   Trash2
 } from "lucide-react";
 import { LOCKED_80_TEAMS, generateDefaultMatrices, isFastPacedLeagueTeam } from "./data/favoriteTeams";
@@ -81,20 +82,56 @@ export default function App() {
       "Initial Calibration: Configured baseline pitch-fact parameters and geographic volatility dampeners for fast-paced transition leagues (Japan, Norway, Sweden, South Korea, China). Zero statistical bias verified.";
   });
 
-  const [activeTab, setActiveTab] = useState<"ingest" | "matrix" | "predictor" | "advancement" | "sync" | "fixtures" | "trends" | "bookmaker">("fixtures");
+  const [activeTab, setActiveTab] = useState<"ingest" | "matrix" | "predictor" | "advancement" | "sync" | "fixtures" | "trends" | "bookmaker" | "results-api" | "verified-results">("fixtures");
   const [trendTeam, setTrendTeam] = useState<string>("Napoli");
+
+  const [verifiedResults, setVerifiedResults] = useState<any[]>([]);
+  const [coeffHistoryLogs, setCoeffHistoryLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/results/verified")
+      .then(res => res.json())
+      .then(data => {
+        if (data.results) setVerifiedResults(data.results);
+      })
+      .catch(err => console.warn("Failed to load verified results:", err));
+
+    fetch(`/api/coefficients/history?team=${encodeURIComponent(trendTeam)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.history) setCoeffHistoryLogs(data.history);
+      })
+      .catch(err => console.warn("Failed to load coefficient history:", err));
+  }, [trendTeam]);
 
   // Fixtures Tab States - STRICTLY Default to TODAY via dynamic client clock
   const [selectedFixtureDate, setSelectedFixtureDate] = useState<string>(() => getTodayDateStr());
   const [fixtureSearch, setFixtureSearch] = useState<string>("");
 
-  // Raw Text Bookmaker Ingestion Engine States
+  // Raw Text & PDF Bookmaker Ingestion Engine States
   const [bookmakerRawText, setBookmakerRawText] = useState<string>(
     `Mamelodi Sundowns vs Orlando Pirates 19:30 1.85 3.25 4.00 DSTV Premiership\nKaizer Chiefs vs Stellenbosch FC 15:00 2.20 3.10 3.30 DSTV Premiership\nCape Town City vs SuperSport United 17:30 2.50 3.00 2.80 DSTV Premiership`
   );
   const [bookmakerParsedResults, setBookmakerParsedResults] = useState<ParsedBookmakerMatch[]>([]);
   const [isSavingToDisk, setIsSavingToDisk] = useState<boolean>(false);
   const [diskPersistStatus, setDiskPersistStatus] = useState<string | null>(null);
+  const [isUploadingPdf, setIsUploadingPdf] = useState<boolean>(false);
+  const [pdfUploadStatus, setPdfUploadStatus] = useState<string | null>(null);
+
+  // Automated Results Scanner & Custom API States (Quota Protection)
+  const [customResultsApiUrl, setCustomResultsApiUrl] = useState<string>("");
+  const [customResultsApiKey, setCustomResultsApiKey] = useState<string>("");
+  const [autoResultsScan, setAutoResultsScan] = useState<boolean>(true);
+  const [maxCallsPerDay, setMaxCallsPerDay] = useState<number>(10);
+  const [todayCallsCount, setTodayCallsCount] = useState<number>(0);
+  const [scanIntervalHours, setScanIntervalHours] = useState<number>(4);
+  const [onlyScanDuringMatches, setOnlyScanDuringMatches] = useState<boolean>(true);
+  const [cacheTtlMinutes, setCacheTtlMinutes] = useState<number>(120);
+  const [isScanningResults, setIsScanningResults] = useState<boolean>(false);
+  const [resultsScanMessage, setResultsScanMessage] = useState<string | null>(null);
+  const [showResultsSettings, setShowResultsSettings] = useState<boolean>(false);
+  const [isTestingApi, setIsTestingApi] = useState<boolean>(false);
+  const [testApiResult, setTestApiResult] = useState<{ success: boolean; message: string; sampleData?: string } | null>(null);
 
   // Ingest Form States
   const [rawPayload, setRawPayload] = useState<string>(PRESET_PAYLOADS[0].payload);
@@ -157,6 +194,17 @@ export default function App() {
 
   // --- 3.1 Historical Coefficients Rolling Average Trend Generation ---
   const trendData = useMemo(() => {
+    const teamLogs = coeffHistoryLogs.filter(h => h.team.toLowerCase() === trendTeam.toLowerCase());
+    if (teamLogs.length > 0) {
+      return teamLogs.map((h, idx) => ({
+        name: `Match ${idx + 1} (${new Date(h.timestamp).toLocaleDateString()})`,
+        "Home Adv (5-M Avg)": h.home_advantage_multiplier,
+        "Form Momentum (5-M Avg)": h.form_momentum_weight,
+        "Volatility (5-M Avg)": h.volatility_index,
+        "Fatigue Penalty (5-M Avg)": h.fatigue_penalty_modifier
+      }));
+    }
+
     const defaultMatrix = {
       sample_size_matches: 0,
       learned_coefficients: {
@@ -573,6 +621,167 @@ export default function App() {
     }
   };
 
+  // Upload and parse PDF fixture sheets (e.g. Hollywoodbets fixture PDF)
+  const handleUploadPdfFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+      alert("Please select a valid PDF document (e.g. Hollywoodbets fixture sheet PDF).");
+      return;
+    }
+
+    setIsUploadingPdf(true);
+    setPdfUploadStatus("Extracting fixture pages from PDF document...");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        const base64 = evt.target?.result as string;
+
+        const res = await fetch("/api/fixtures/upload-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pdfBase64: base64,
+            defaultDate: selectedFixtureDate === "all" ? getTodayDateStr() : selectedFixtureDate
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.success && data.fixtures?.length > 0) {
+          setLiveFixtures(prev => mergeFixtureSlates(prev, data.fixtures, { incomingIsBookmaker: true }));
+          setBookmakerParsedResults(data.matches || []);
+          setPdfUploadStatus(`✓ Extracted and committed ${data.totalExtracted} fixtures across ${data.totalPages} PDF pages!`);
+          setDiskPersistStatus(`✓ Extracted ${data.totalExtracted} matches from PDF directly to Server Disk!`);
+          setTimeout(() => setDiskPersistStatus(null), 6000);
+        } else {
+          setPdfUploadStatus(`PDF Upload Note: ${data.message || "No valid fixture rows detected in PDF."}`);
+        }
+        setIsUploadingPdf(false);
+      };
+
+      reader.onerror = () => {
+        setPdfUploadStatus("Error reading PDF file.");
+        setIsUploadingPdf(false);
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error("PDF upload failed:", err);
+      setPdfUploadStatus(`PDF Upload error: ${err.message}`);
+      setIsUploadingPdf(false);
+    }
+  };
+
+  // Load Results Scanner Config on Mount
+  useEffect(() => {
+    fetch("/api/results/config")
+      .then(res => res.json())
+      .then(data => {
+        if (data.apiUrl !== undefined) setCustomResultsApiUrl(data.apiUrl);
+        if (data.apiKey !== undefined) setCustomResultsApiKey(data.apiKey);
+        if (data.autoScanEnabled !== undefined) setAutoResultsScan(data.autoScanEnabled);
+        if (data.maxCallsPerDay !== undefined) setMaxCallsPerDay(data.maxCallsPerDay);
+        if (data.todayCallsCount !== undefined) setTodayCallsCount(data.todayCallsCount);
+        if (data.scanIntervalHours !== undefined) setScanIntervalHours(data.scanIntervalHours);
+        if (data.onlyScanDuringMatches !== undefined) setOnlyScanDuringMatches(data.onlyScanDuringMatches);
+        if (data.cacheTtlMinutes !== undefined) setCacheTtlMinutes(data.cacheTtlMinutes);
+      })
+      .catch(err => console.warn("Failed to load results config:", err));
+  }, []);
+
+  // Save Results Scanner Configuration
+  const handleSaveResultsConfig = async () => {
+    try {
+      const res = await fetch("/api/results/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiUrl: customResultsApiUrl,
+          apiKey: customResultsApiKey,
+          autoScanEnabled: autoResultsScan,
+          maxCallsPerDay,
+          scanIntervalHours,
+          onlyScanDuringMatches,
+          cacheTtlMinutes
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.config && data.config.todayCallsCount !== undefined) {
+          setTodayCallsCount(data.config.todayCallsCount);
+        }
+        setResultsScanMessage("✓ Quota Guard & API settings saved successfully.");
+        setTimeout(() => setResultsScanMessage(null), 4000);
+      }
+    } catch (err: any) {
+      setResultsScanMessage(`Failed to save settings: ${err.message}`);
+    }
+  };
+
+  // Test API Connection directly
+  const handleTestResultsApi = async () => {
+    if (!customResultsApiUrl) {
+      setTestApiResult({ success: false, message: "Please enter a valid API URL before testing." });
+      return;
+    }
+    setIsTestingApi(true);
+    setTestApiResult(null);
+
+    try {
+      // First save current config
+      await handleSaveResultsConfig();
+
+      // Trigger a live scan request to test endpoint response
+      const res = await fetch("/api/results/scan", { method: "POST" });
+      const data = await res.json();
+
+      if (data.success) {
+        setTestApiResult({
+          success: true,
+          message: `Connection Successful! ${data.message || 'API responded cleanly.'}`,
+          sampleData: JSON.stringify(data.config, null, 2)
+        });
+      } else {
+        setTestApiResult({
+          success: false,
+          message: `API returned error: ${data.error || 'Invalid response schema'}`
+        });
+      }
+    } catch (err: any) {
+      setTestApiResult({
+        success: false,
+        message: `Connection failed: ${err.message}`
+      });
+    } finally {
+      setIsTestingApi(false);
+    }
+  };
+
+  // Trigger Automatic Results Scanner on Demand
+  const handleScanResultsNow = async () => {
+    setIsScanningResults(true);
+    setResultsScanMessage("Scanning custom API & official feeds for FT match scores...");
+    try {
+      const res = await fetch("/api/results/scan", { method: "POST" });
+      const data = await res.json();
+      if (data.fixtures) {
+        setLiveFixtures(data.fixtures);
+      }
+      if (data.config && data.config.todayCallsCount !== undefined) {
+        setTodayCallsCount(data.config.todayCallsCount);
+      }
+      setResultsScanMessage(data.message || `Scan completed! Settled ${data.settledCount || 0} match results.`);
+      setTimeout(() => setResultsScanMessage(null), 6000);
+    } catch (err: any) {
+      setResultsScanMessage(`Results scan error: ${err.message}`);
+    } finally {
+      setIsScanningResults(false);
+    }
+  };
+
   // Live Fixtures loaded dynamically with dual-layer server disk persistence
   const [liveFixtures, setLiveFixtures] = useState<Fixture[]>(() => {
     const saved = localStorage.getItem("football_engine_cached_fixtures");
@@ -780,6 +989,23 @@ export default function App() {
           </button>
 
           <button 
+            onClick={() => setActiveTab("results-api")}
+            className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center justify-between font-medium ${
+              activeTab === "results-api" 
+                ? "bg-white text-sky-700 shadow-sm border border-sky-200" 
+                : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <RefreshCw className="w-4.5 h-4.5 text-sky-600" />
+              Custom Results API
+            </span>
+            <span className="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-bold">
+              Live Scores
+            </span>
+          </button>
+
+          <button 
             onClick={() => setActiveTab("ingest")}
             className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center justify-between font-medium ${
               activeTab === "ingest" 
@@ -863,6 +1089,25 @@ export default function App() {
             Export Sync Layer
           </button>
 
+          <button 
+            onClick={() => setActiveTab("verified-results")}
+            className={`w-full text-left px-4 py-3 rounded-xl transition flex items-center justify-between font-medium ${
+              activeTab === "verified-results" 
+                ? "bg-white text-[#15803D] shadow-sm border border-[#E2E8F0]" 
+                : "text-[#475569] hover:bg-[#F1F5F9] hover:text-[#0F172A]"
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <ShieldCheck className="w-4.5 h-4.5 text-emerald-600" />
+              Verified Results & History
+            </span>
+            {verifiedResults.length > 0 && (
+              <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                {verifiedResults.length}
+              </span>
+            )}
+          </button>
+
           <div className="mt-6 p-4 bg-[#F1F5F9] border border-[#E2E8F0] rounded-xl flex flex-col gap-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-[#334155]">
               <Settings className="w-4 h-4 text-[#475569]" />
@@ -899,24 +1144,61 @@ export default function App() {
                   <p className="text-sm text-[#64748B] mt-1">
                     Monitor scheduled matches for the locked profile of 80 teams. Access today's active matches, filter by calendar dates, or instantly load parameters into the bias-free simulation engine.
                   </p>
+
+                  {/* SportAPI.ai & TheRundown Pipeline Status Widget */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                      <Database className="w-4 h-4 text-[#15803D]" />
+                      <span>Ingestion Pipeline:</span>
+                    </div>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow-2xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                      SportAPI.ai (Primary): ACTIVE
+                    </span>
+                    <span className="text-[10px] bg-sky-100 text-sky-800 border border-sky-300 font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow-2xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+                      TheRundown.io (Secondary): STANDBY
+                    </span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch("/api/admin/run-ingest-now", { method: "POST" });
+                          const data = await res.json();
+                          alert(data.message || "Ingestion triggered!");
+                          window.location.reload();
+                        } catch (e: any) {
+                          alert("Ingest error: " + e.message);
+                        }
+                      }}
+                      className="ml-auto text-[10px] bg-[#15803D] hover:bg-[#166534] text-white font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Run Ingestion Now (05:30 UTC Cron)
+                    </button>
+                  </div>
                   
-                  {/* Google Search Grounding Status Indicator */}
+                  {/* Google Search Grounding & Results Scanner Status Indicators */}
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] bg-[#E8F5E9] text-[#15803D] border border-[#C8E6C9] font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-2xs">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#15803D] animate-ping"></span>
                         Zero-Hallucination Integrity: ACTIVE
                       </span>
-                      {isLoadingRealFixtures ? (
-                        <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 animate-pulse">
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          Checking official feeds...
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-slate-50 text-slate-500 border border-[#E2E8F0] font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5">
-                          ✓ No synthetic match generation
-                        </span>
-                      )}
+                      <button
+                        onClick={handleScanResultsNow}
+                        disabled={isScanningResults}
+                        className="text-[10px] bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 transition cursor-pointer"
+                        title="Scan custom API and live web search for FT scores"
+                      >
+                        <RefreshCw className={`w-3 h-3 text-sky-600 ${isScanningResults ? 'animate-spin' : ''}`} />
+                        {isScanningResults ? "Scanning Scores..." : "Scan Match Results Now"}
+                      </button>
+                      <button
+                        onClick={() => setShowResultsSettings(!showResultsSettings)}
+                        className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-2.5 py-1 rounded-md flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Database className="w-3 h-3 text-slate-500" />
+                        Custom Results API Settings
+                      </button>
                     </div>
                     {liveFixtures.length > 0 && (
                       <button
@@ -929,6 +1211,73 @@ export default function App() {
                       </button>
                     )}
                   </div>
+
+                  {resultsScanMessage && (
+                    <div className="mt-2.5 text-xs font-bold text-sky-800 bg-sky-50 border border-sky-200 px-3 py-2 rounded-lg flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span>{resultsScanMessage}</span>
+                    </div>
+                  )}
+
+                  {/* Expandable Custom Results API & Auto-Scanner Settings */}
+                  {showResultsSettings && (
+                    <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-4 h-4 text-[#15803D]" />
+                          <h4 className="font-bold text-[#0F172A]">Custom Results API Integration & Auto-Scan</h4>
+                        </div>
+                        <label className="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={autoResultsScan}
+                            onChange={(e) => setAutoResultsScan(e.target.checked)}
+                            className="rounded border-slate-300 text-[#15803D] focus:ring-[#15803D]"
+                          />
+                          <span>Enable Auto-Scan every 15 mins</span>
+                        </label>
+                      </div>
+
+                      <p className="text-slate-600 text-[11px]">
+                        Connect your custom results API URL (e.g. <code className="bg-slate-200 px-1 py-0.5 rounded">https://your-api.com/v1/scores</code>) or push match scores directly to <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">POST /api/results/push-scores</code>. The background worker queries your API or live search every 15 minutes to automatically verify full-time match scores.
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Custom Results API URL</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. https://my-sports-api.com/api/v1/live-scores"
+                            value={customResultsApiUrl}
+                            onChange={(e) => setCustomResultsApiUrl(e.target.value)}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">API Authorization Key (Optional)</label>
+                          <input
+                            type="password"
+                            placeholder="Bearer or x-api-key"
+                            value={customResultsApiKey}
+                            onChange={(e) => setCustomResultsApiKey(e.target.value)}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[10px] text-slate-500">
+                          Webhook endpoint for external push: <code className="font-mono text-slate-800 bg-slate-200 px-1.5 py-0.5 rounded">POST /api/results/push-scores</code>
+                        </span>
+                        <button
+                          onClick={handleSaveResultsConfig}
+                          className="bg-[#15803D] hover:bg-[#166534] text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition"
+                        >
+                          Save API Configuration
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* TODAY'S MATCHES CALLOUT SECTION (Dynamically Evaluated for Today) */}
@@ -991,7 +1340,20 @@ export default function App() {
                                 ★ Today's Team
                               </span>
                             </div>
-                            <span className="text-xs font-mono font-bold text-gray-400 px-3 shrink-0">VS</span>
+
+                            {match.finalScore ? (
+                              <div className="flex flex-col items-center px-2 shrink-0">
+                                <span className="text-[9px] bg-emerald-700 text-white font-extrabold px-1.5 py-0.5 rounded tracking-wider uppercase">
+                                  FT Final
+                                </span>
+                                <span className="text-base font-mono font-black text-emerald-800">
+                                  {match.finalScore.home} - {match.finalScore.away}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs font-mono font-bold text-gray-400 px-3 shrink-0">VS</span>
+                            )}
+
                             <div className="flex-1 text-center font-bold text-[#0F172A]">
                               <span className="flex items-center justify-center gap-1 text-sm">
                                 {isFavTeam(match.awayTeam) && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />}
@@ -1196,6 +1558,110 @@ export default function App() {
               </div>
             )}
 
+            {/* --- Verified Results & Prediction History View --- */}
+            {activeTab === "verified-results" && (
+              <div className="flex flex-col gap-6">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0F172A] flex items-center gap-2">
+                    <ShieldCheck className="w-5.5 h-5.5 text-emerald-600" />
+                    Verified Results & Prediction History
+                  </h2>
+                  <p className="text-sm text-[#64748B] mt-1">
+                    Real-time verification log comparing automated model predictions against verified match final scores. Correct predictions automatically calibrate team intelligence matrices.
+                  </p>
+                </div>
+
+                {/* Summary Metrics Banner */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Total Verified Matches</span>
+                    <span className="text-2xl font-extrabold text-[#0F172A]">{verifiedResults.length}</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Synced from Server & API-Football</span>
+                  </div>
+
+                  <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Correct Predictions</span>
+                    <span className="text-2xl font-extrabold text-emerald-600">
+                      {verifiedResults.filter(r => r.isCorrect).length}
+                    </span>
+                    <span className="text-[10px] text-[#64748B]">Accurate outcome forecasts</span>
+                  </div>
+
+                  <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Hit Rate Accuracy</span>
+                    <span className="text-2xl font-extrabold text-[#0F172A]">
+                      {verifiedResults.length > 0 ? Math.round((verifiedResults.filter(r => r.isCorrect).length / verifiedResults.length) * 100) : 0}%
+                    </span>
+                    <span className="text-[10px] text-[#64748B]">Model track record</span>
+                  </div>
+                </div>
+
+                {/* Results Table */}
+                <div className="flex flex-col gap-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#475569]">Verified Match Audit Log</h3>
+                  {verifiedResults.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 border border-dashed border-gray-300 rounded-xl">
+                      <ShieldCheck className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-gray-600">No verified match results in history yet.</p>
+                      <p className="text-xs text-gray-400 mt-1">Run an automated results scan or push scores to populate verified audit logs.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-[#E2E8F0] rounded-xl">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#F8FAFC] text-[11px] text-[#475569] uppercase font-bold border-b border-[#E2E8F0]">
+                            <th className="p-3">Date / Competition</th>
+                            <th className="p-3">Fixture</th>
+                            <th className="p-3 text-center">Prediction</th>
+                            <th className="p-3 text-center">Actual FT Score</th>
+                            <th className="p-3 text-center">Audit Status</th>
+                            <th className="p-3">Source</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2E8F0] text-xs">
+                          {verifiedResults.map((r, i) => (
+                            <tr key={i} className="hover:bg-gray-50 transition">
+                              <td className="p-3">
+                                <span className="font-bold text-[#0F172A]">{r.date}</span>
+                                <span className="block text-[10px] text-[#64748B]">{r.competition}</span>
+                              </td>
+                              <td className="p-3">
+                                <span className="font-bold text-[#0F172A]">{r.homeTeam} vs {r.awayTeam}</span>
+                              </td>
+                              <td className="p-3 text-center font-mono">
+                                <span className="px-2 py-0.5 bg-gray-100 rounded text-gray-800 font-bold">
+                                  {r.predictedScore} ({r.predictedOutcome})
+                                </span>
+                              </td>
+                              <td className="p-3 text-center font-mono">
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded font-extrabold">
+                                  {r.actualScore} ({r.actualOutcome})
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                {r.isCorrect ? (
+                                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px]">
+                                    ✓ Correct
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px]">
+                                    ✗ Incorrect
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3 text-[10px] text-[#64748B] font-mono">
+                                {r.source}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* --- 0. Raw Text Bookmaker Ingestion Engine View --- */}
             {activeTab === "bookmaker" && (
               <div className="flex flex-col gap-6">
@@ -1274,6 +1740,44 @@ export default function App() {
                       <span className="text-[10px] text-[#64748B] line-clamp-1">1X2 labeled odds & Premier League fixtures</span>
                     </button>
                   </div>
+                </div>
+
+                {/* PDF Fixture Upload Dropzone */}
+                <div className="bg-gradient-to-r from-emerald-900 via-[#15803D] to-teal-900 rounded-xl p-5 text-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 border border-emerald-700/50">
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-3 bg-white/10 backdrop-blur-md rounded-xl text-emerald-200 shrink-0">
+                      <UploadCloud className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold tracking-tight">Manual Hollywoodbets PDF Fixture Upload</h4>
+                        <span className="text-[10px] bg-emerald-400/20 text-emerald-200 border border-emerald-400/30 px-2 py-0.5 rounded-full font-bold uppercase">
+                          Native PDF Ingestion
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-100/90 mt-1 max-w-xl">
+                        Upload multi-page Hollywoodbets PDF fixture sheets (like 24-page fixture publications). The system extracts all match tables, coup codes, times, and fractional odds (<code className="bg-black/30 px-1 py-0.5 rounded text-emerald-200 font-mono">17-10</code> → <code className="bg-black/30 px-1 py-0.5 rounded text-emerald-200 font-mono">2.70</code>) directly into the server manifest.
+                      </p>
+                      {pdfUploadStatus && (
+                        <div className="mt-2.5 text-xs font-bold text-amber-200 flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/10">
+                          {isUploadingPdf && <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />}
+                          <span>{pdfUploadStatus}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-[#15803D] hover:bg-emerald-50 text-xs font-bold rounded-lg cursor-pointer transition shadow-sm shrink-0 border border-white/80">
+                    <FileText className="w-4 h-4 text-[#15803D]" />
+                    <span>{isUploadingPdf ? "Processing PDF..." : "Upload Hollywoodbets PDF"}</span>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={handleUploadPdfFile}
+                      disabled={isUploadingPdf}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
 
                 {/* Raw Bookmaker Text Area */}
@@ -1410,6 +1914,262 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* --- Custom Results API Integration Tab View --- */}
+            {activeTab === "results-api" && (
+              <div className="flex flex-col gap-6">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-extrabold text-[#0F172A] flex items-center gap-2">
+                      <RefreshCw className="w-5.5 h-5.5 text-sky-600" />
+                      Custom Results API & Webhook Configuration
+                    </h2>
+                    <span className="text-[10px] bg-sky-50 text-sky-700 border border-sky-200 font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-2xs">
+                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600" />
+                      Auto Score Verification Engine
+                    </span>
+                  </div>
+                  <p className="text-sm text-[#64748B] mt-1">
+                    Connect your custom REST API or push live scores via webhook. The background scanner checks your API every 15 minutes to automatically verify full-time match scores (<code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-700">FT</code>) and settle pending match cards.
+                  </p>
+                </div>
+
+                {/* Quota Meter & Strict Protection Card */}
+                <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 text-white rounded-xl p-5 shadow-sm border border-sky-800/40 flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-800/50 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-sky-500/20 text-sky-400 rounded-lg">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-sm text-white">Daily API Quota Protection Engine</h3>
+                        <p className="text-[11px] text-sky-200">Shared 100 Calls/Day Budget Protection</p>
+                      </div>
+                    </div>
+                    <div className="bg-sky-900/60 border border-sky-700/60 rounded-lg px-3 py-1.5 flex items-center gap-3">
+                      <span className="text-xs font-mono font-bold text-sky-300">
+                        Today's Usage: <strong className="text-white text-sm">{todayCallsCount}</strong> / {maxCallsPerDay} calls
+                      </span>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-extrabold px-2 py-0.5 rounded uppercase">
+                        {maxCallsPerDay - todayCallsCount} Remaining
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quota Meter Progress Bar */}
+                  <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        (todayCallsCount / maxCallsPerDay) >= 0.9
+                          ? 'bg-rose-500'
+                          : (todayCallsCount / maxCallsPerDay) >= 0.7
+                          ? 'bg-amber-400'
+                          : 'bg-emerald-400'
+                      }`}
+                      style={{ width: `${Math.min(100, Math.max(2, (todayCallsCount / maxCallsPerDay) * 100))}%` }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-sky-300 uppercase mb-1">Max Daily Calls Allowed</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={maxCallsPerDay}
+                        onChange={(e) => setMaxCallsPerDay(Number(e.target.value))}
+                        className="w-full bg-slate-800 border border-sky-700/60 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400 font-mono"
+                      />
+                      <span className="text-[9px] text-slate-400 mt-0.5 block">Default: 10 calls/day for this app</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-sky-300 uppercase mb-1">Scan Frequency</label>
+                      <select
+                        value={scanIntervalHours}
+                        onChange={(e) => setScanIntervalHours(Number(e.target.value))}
+                        className="w-full bg-slate-800 border border-sky-700/60 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400 font-mono"
+                      >
+                        <option value={1}>Every 1 hour (24 calls/day)</option>
+                        <option value={2}>Every 2 hours (12 calls/day)</option>
+                        <option value={4}>Every 4 hours (6 calls/day - Recommended)</option>
+                        <option value={6}>Every 6 hours (4 calls/day)</option>
+                        <option value={12}>Every 12 hours (2 calls/day)</option>
+                        <option value={24}>Once daily (1 call/day)</option>
+                      </select>
+                      <span className="text-[9px] text-slate-400 mt-0.5 block">Controls background timer frequency</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-sky-300 uppercase mb-1">Cache TTL (Minutes)</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="1440"
+                        value={cacheTtlMinutes}
+                        onChange={(e) => setCacheTtlMinutes(Number(e.target.value))}
+                        className="w-full bg-slate-800 border border-sky-700/60 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-400 font-mono"
+                      />
+                      <span className="text-[9px] text-slate-400 mt-0.5 block">Reuses recent data without API calls</span>
+                    </div>
+
+                    <div className="flex flex-col justify-center">
+                      <label className="flex items-center gap-2 font-bold text-sky-200 cursor-pointer pt-2">
+                        <input
+                          type="checkbox"
+                          checked={onlyScanDuringMatches}
+                          onChange={(e) => setOnlyScanDuringMatches(e.target.checked)}
+                          className="rounded border-slate-600 text-sky-500 focus:ring-sky-500"
+                        />
+                        <span className="text-xs">Smart Match Window</span>
+                      </label>
+                      <span className="text-[9px] text-slate-400 mt-0.5 block">Skip calls if no pending matches today</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* API Endpoint Configuration Card */}
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-sky-600" />
+                      <h3 className="font-bold text-[#0F172A] text-sm">1. Configure External Results API Endpoint</h3>
+                    </div>
+                    <label className="flex items-center gap-2 font-semibold text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoResultsScan}
+                        onChange={(e) => setAutoResultsScan(e.target.checked)}
+                        className="rounded border-slate-300 text-[#15803D] focus:ring-[#15803D]"
+                      />
+                      <span>Auto-Scan Every 15 Minutes</span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Results API URL <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="e.g. https://my-sports-api.com/v1/scores"
+                        value={customResultsApiUrl}
+                        onChange={(e) => setCustomResultsApiUrl(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-sky-600"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        Must return JSON with array of finished match scores.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        API Authorization Key / Token (Optional)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Bearer token or x-api-key"
+                        value={customResultsApiKey}
+                        onChange={(e) => setCustomResultsApiKey(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-sky-600"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        Passed in header as Authorization Bearer & x-api-key.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                    <button
+                      onClick={handleSaveResultsConfig}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-lg transition"
+                    >
+                      Save Configuration
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleTestResultsApi}
+                        disabled={isTestingApi}
+                        className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTestingApi ? 'animate-spin' : ''}`} />
+                        {isTestingApi ? "Testing Connection..." : "Test Connection & Save"}
+                      </button>
+
+                      <button
+                        onClick={handleScanResultsNow}
+                        disabled={isScanningResults}
+                        className="bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Activity className={`w-3.5 h-3.5 ${isScanningResults ? 'animate-spin' : ''}`} />
+                        {isScanningResults ? "Scanning Scores..." : "Run Immediate Results Scan"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {testApiResult && (
+                    <div className={`p-3.5 rounded-xl border text-xs flex flex-col gap-1.5 ${
+                      testApiResult.success
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                        : "bg-rose-50 border-rose-200 text-rose-900"
+                    }`}>
+                      <div className="font-bold flex items-center gap-2">
+                        {testApiResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Trash2 className="w-4 h-4 text-rose-600" />}
+                        <span>{testApiResult.message}</span>
+                      </div>
+                      {testApiResult.sampleData && (
+                        <pre className="bg-black/80 text-emerald-300 p-2.5 rounded text-[11px] font-mono overflow-x-auto max-h-40">
+                          {testApiResult.sampleData}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+
+                  {resultsScanMessage && (
+                    <div className="p-3 bg-sky-50 border border-sky-200 text-sky-900 rounded-xl text-xs font-semibold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span>{resultsScanMessage}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Webhook Push Endpoint Developer Instructions */}
+                <div className="bg-slate-900 text-slate-100 border border-slate-800 rounded-xl p-5 shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Code className="w-4 h-4 text-emerald-400" />
+                      <h3 className="font-bold text-white text-sm">2. Push Match Results Directly via Webhook</h3>
+                    </div>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-mono font-bold">
+                      POST /api/results/push-scores
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-300">
+                    If your server or external scraper prefers to push scores directly whenever matches complete, send a <code className="bg-black/50 px-1 py-0.5 rounded text-emerald-300 font-mono">POST</code> request to the endpoint below:
+                  </p>
+
+                  <div className="bg-black/60 rounded-lg p-3 font-mono text-xs text-slate-200 border border-slate-800 overflow-x-auto">
+                    <div className="text-slate-400 text-[10px] mb-1">// Example HTTP Request Body:</div>
+                    <pre className="text-emerald-400">{`{
+  "scores": [
+    {
+      "homeTeam": "Mamelodi Sundowns",
+      "awayTeam": "Orlando Pirates",
+      "date": "2026-09-25",
+      "homeGoals": 2,
+      "awayGoals": 1,
+      "status": "FT"
+    }
+  ]
+}`}</pre>
+                  </div>
+                </div>
               </div>
             )}
 

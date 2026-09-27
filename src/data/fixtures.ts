@@ -13,8 +13,16 @@ export interface Fixture {
   opponentLowBlock: boolean;
   hasHighShotAccuracy: boolean;
   possessionRatio: number;
-  source?: "bookmaker-import" | "manual-ingest" | "espn" | "verified-manifest" | "gemini-search-grounded" | "quota-fallback";
+  source?: "bookmaker-import" | "hollywoodbets-pdf" | "manual-ingest" | "espn" | "verified-manifest" | "gemini-search-grounded" | "quota-fallback" | "custom-results-api";
   isBookmakerProtected?: boolean;
+  status?: "NS" | "LIVE" | "FT" | "POSTPONED";
+  finalScore?: {
+    home: number;
+    away: number;
+  };
+  resultSettled?: boolean;
+  settledAt?: string;
+  resultSource?: string;
   odds?: {
     home: number;
     draw: number;

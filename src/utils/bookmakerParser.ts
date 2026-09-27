@@ -27,6 +27,21 @@ export interface ParseResult {
   slateDate: string;
 }
 
+const MONTH_MAP: Record<string, string> = {
+  jan: "01", january: "01",
+  feb: "02", february: "02",
+  mar: "03", march: "03",
+  apr: "04", april: "04",
+  may: "05",
+  jun: "06", june: "06",
+  jul: "07", july: "07",
+  aug: "08", august: "08",
+  sep: "09", sept: "09", september: "09",
+  oct: "10", october: "10",
+  nov: "11", november: "11",
+  dec: "12", december: "12"
+};
+
 const KNOWN_COMPETITIONS = [
   "Chinese Super League", "CSL",
   "UEFA Champions League", "Champions League", "UCL",
@@ -34,7 +49,7 @@ const KNOWN_COMPETITIONS = [
   "UEFA Conference League", "Conference League", "UECL",
   "UEFA Friendly / Elite Showcase", "UEFA Friendly", "Elite Showcase", "Friendly Showcase", "Club Friendly", "International Friendly",
   "Premier League", "EPL", "English Premier League", "Championship", "FA Cup", "EFL Cup",
-  "DSTV Premiership", "South African PSL", "Premier Soccer League", "PSL", "Nedbank Cup", "MTN8",
+  "DSTV Premiership", "South African PSL", "Premier Soccer League", "PSL", "Nedbank Cup", "MTN8", "Hollywoodbets Super League",
   "Ligue 1", "Ligue 2", "Coupe de France",
   "Serie A", "Serie B", "Coppa Italia",
   "La Liga", "LaLiga", "Segunda Division", "Copa del Rey",
@@ -47,14 +62,15 @@ const KNOWN_COMPETITIONS = [
 ];
 
 /**
- * Converts fractional odds (e.g. "5/2", "11/4", "1/1") or decimal strings into decimal number
+ * Converts fractional odds (e.g. "5/2", "17-10", "42-100", "1/1") or decimal strings into decimal number
+ * In Hollywoodbets PDF: "17-10" = 17/10 = 2.70 decimal, "42-100" = 42/100 = 1.42 decimal.
  */
-function parseOdd(val: string): number | null {
+export function parseOdd(val: string): number | null {
   if (!val) return null;
   const clean = val.trim();
   
-  // Fractional format e.g. 5/2 or 10/11
-  const fracMatch = clean.match(/^(\d{1,4})\/(\d{1,4})$/);
+  // Fractional format e.g. 5/2, 17-10, 42-100, 11/4
+  const fracMatch = clean.match(/^(\d{1,4})[\/\-](\d{1,4})$/);
   if (fracMatch) {
     const num = parseFloat(fracMatch[1]);
     const den = parseFloat(fracMatch[2]);
@@ -148,8 +164,37 @@ function matchCanonicalTeam(name: string): string {
 }
 
 /**
- * Robust Raw Text Bookmaker Ingestion Parser
- * Ingests raw clipboard text from Hollywoodbets, Betway, Bet365, etc.
+ * Parses date strings in Hollywoodbets headers
+ * e.g. "TODAY's Games (FRIDAY 25 September)" or "Saturday's Games (26 September)" or "Friday 25 Sep 2026"
+ */
+function parseHollywoodbetsHeaderDate(line: string, defaultDate: string): string | null {
+  const currentYear = new Date().getFullYear();
+
+  // Pattern: "(FRIDAY 25 September)" or "(26 September)"
+  const bracketMatch = line.match(/\((\w+)?\s*(\d{1,2})\s+([a-zA-Z]+)\)/i);
+  if (bracketMatch) {
+    const day = bracketMatch[2].padStart(2, "0");
+    const mStr = bracketMatch[3].toLowerCase();
+    const month = MONTH_MAP[mStr] || "09";
+    return `${currentYear}-${month}-${day}`;
+  }
+
+  // Pattern: "Friday 25 Sep 2026" or "25 September 2026"
+  const fullDateMatch = line.match(/(\d{1,2})\s+([a-zA-Z]+)\s+(202\d)/i);
+  if (fullDateMatch) {
+    const day = fullDateMatch[1].padStart(2, "0");
+    const mStr = fullDateMatch[2].toLowerCase();
+    const month = MONTH_MAP[mStr] || "09";
+    const year = fullDateMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
+/**
+ * Robust Hollywoodbets / Bookmaker Raw Text & PDF Ingestion Parser
+ * Ingests text extracted from PDF files or pasted clipboard text from Hollywoodbets, Betway, Bet365, etc.
  */
 export function parseBookmakerRawText(rawText: string, defaultDate?: string): ParseResult {
   const slateDate = defaultDate || getTodayDateStr();
@@ -158,29 +203,26 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
   const matches: ParsedBookmakerMatch[] = [];
   const unparsedLines: string[] = [];
 
-  // Current context tracking across multiline boards
-  let currentCompetition = "Bookmaker Regional Slate";
+  let currentCompetition = "Hollywoodbets Regional Slate";
   let activeDate = slateDate;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Check if line indicates competition / sport header
-    if (
-      line.match(/^(soccer|football|league|premier|championship|cup|division|serie|la liga|bundesliga|csl)/i) ||
-      line.includes(" - ") && !line.match(/\b(vs|v)\b/i) && !line.match(/\d+\.\d+/)
-    ) {
-      currentCompetition = line.replace(/^(soccer\s*[-:]?\s*)/i, "").trim();
+    // Check for Hollywoodbets date headers e.g. "TODAY's Games (FRIDAY 25 September)"
+    const parsedHeaderDate = parseHollywoodbetsHeaderDate(line, slateDate);
+    if (parsedHeaderDate) {
+      activeDate = parsedHeaderDate;
       continue;
     }
 
-    // Check if line is a date marker e.g. "2026-09-25" or "25/09"
+    // Check ISO date markers e.g. "2026-09-25" or "25/09"
     const isoDateMatch = line.match(/\b(202\d-\d{2}-\d{2})\b/);
     if (isoDateMatch) {
       activeDate = isoDateMatch[1];
     } else {
       const dmMatch = line.match(/\b(\d{1,2})[/.-](\d{1,2})\b/);
-      if (dmMatch && !line.match(/\b(vs|v)\b/i)) {
+      if (dmMatch && !line.match(/\b(vs|v)\b/i) && !line.match(/\d+[\/\-]\d+/)) {
         const day = dmMatch[1].padStart(2, "0");
         const month = dmMatch[2].padStart(2, "0");
         const year = new Date().getFullYear();
@@ -188,47 +230,127 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
       }
     }
 
-    // Pattern 1: Inline match with "vs" or "v" and odds (e.g., "Arsenal vs Chelsea 17:30 2.10 3.40 3.20")
-    // or Hollywoodbets "1: 2.10 X: 3.40 2: 3.20"
-    const vsSeparator = line.match(/\s+(?:vs|v|-)\s+/i);
-    const oddsRegex = /\b(\d+\.\d{1,2}|\d+\/\d+)\b/g;
-    const oddsFound = Array.from(line.matchAll(oddsRegex)).map(m => m[0]);
+    // Check if line indicates country / competition header in Hollywoodbets format
+    // e.g. "ALGERIA, ALGERIA LEAGUE U20", "ENGLAND, FA TROPHY", "CHINA, CHINA LEAGUE"
+    if (
+      line.match(/^[A-Z\s]+,\s+[A-Z0-9\s\.\/]+$/) ||
+      line.match(/^(soccer|football|league|premier|championship|cup|division|serie|la liga|bundesliga|csl)/i) ||
+      (line.includes(" - ") && !line.match(/\b(vs|v)\b/i) && !line.match(/\d+\.\d+/) && !line.match(/\d+[\/\-]\d+/))
+    ) {
+      currentCompetition = line.replace(/^(soccer\s*[-:]?\s*)/i, "").trim();
+      continue;
+    }
 
-    // Extract kickoff time if present (e.g. 19:30 or 15:00)
+    // Extract kickoff time if present (e.g. 19:30, 11:00, 14:00)
     const timeMatch = line.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
     const kickoffTime = timeMatch ? `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}` : "18:00";
 
+    // Pattern 1: Hollywoodbets PDF format line:
+    // e.g. "14:00 ARSENAL DE SARAN v TALLERES REMEDIO 1268 5-10 29-10 39-10 1-6 1-10 12-10"
+    // e.g. "11:00 CR BELOUIZDAD U2 v KOUBA U20 885 42-100 33-10 17-4 2-13 1-10 15-10"
+    // e.g. "ARSENAL DE SARAN vs TALLERES REMEDIO 1268 1.50 3.90 4.90"
+    const hwMatch = line.match(/^(?:([01]?\d|2[0-3]):([0-5]\d)\s+)?(.*?)\s+(?:v|vs)\s+(.*?)(?:\s+(\d{1,5}))?\s+([\d\.\/\-]+)\s+([\d\.\/\-]+)\s+([\d\.\/\-]+)(.*)$/i);
+
+    if (hwMatch) {
+      const leftPart = hwMatch[3].trim();
+      const rightPart = hwMatch[4].trim();
+      const coupCode = hwMatch[5] || "";
+      const rawHomeOdd = hwMatch[6];
+      const rawDrawOdd = hwMatch[7];
+      const rawAwayOdd = hwMatch[8];
+
+      const homeOdd = parseOdd(rawHomeOdd);
+      const drawOdd = parseOdd(rawDrawOdd);
+      const awayOdd = parseOdd(rawAwayOdd);
+
+      if (homeOdd && drawOdd && awayOdd && leftPart.length > 1 && rightPart.length > 1) {
+        const { cleanAway, competition: finalComp } = extractCompetitionAndTeam(rightPart, currentCompetition);
+        const homeName = matchCanonicalTeam(leftPart);
+
+        const probs = calculateProbabilityDistribution(homeOdd, drawOdd, awayOdd);
+        const compositeKey = getFixtureCompositeKey(homeName, cleanAway, activeDate);
+
+        const isHomeFavored = probs.homeWinPct > probs.awayWinPct;
+        const homeRank = isHomeFavored ? Math.max(1, Math.round(10 - probs.homeWinPct / 10)) : Math.min(18, Math.round(8 + probs.awayWinPct / 10));
+        const awayRank = !isHomeFavored ? Math.max(1, Math.round(10 - probs.awayWinPct / 10)) : Math.min(18, Math.round(8 + probs.homeWinPct / 10));
+        const possessionRatio = Math.min(68, Math.max(38, Math.round(50 + (probs.homeWinPct - probs.awayWinPct) / 3)));
+        const opponentLowBlock = probs.homeWinPct > 55 || probs.awayWinPct > 55;
+        const wasDerby = line.toLowerCase().includes("derby") || finalComp.toLowerCase().includes("derby");
+
+        const fixture: Fixture = {
+          id: `hw-${compositeKey}`,
+          date: activeDate,
+          time: kickoffTime,
+          homeTeam: homeName,
+          awayTeam: cleanAway,
+          competition: finalComp,
+          wasDerby,
+          homeRank,
+          awayRank,
+          homeContinentalGap: 5,
+          awayContinentalGap: 5,
+          opponentLowBlock,
+          hasHighShotAccuracy: probs.homeWinPct > 45,
+          possessionRatio,
+          source: "hollywoodbets-pdf",
+          isBookmakerProtected: true,
+          odds: {
+            home: homeOdd,
+            draw: drawOdd,
+            away: awayOdd
+          },
+          probabilities: probs
+        };
+
+        matches.push({
+          fixture,
+          rawLine: line,
+          compositeKey,
+          impliedProbabilities: probs,
+          oddsDecimals: {
+            home: homeOdd,
+            draw: drawOdd,
+            away: awayOdd
+          }
+        });
+        continue;
+      }
+    }
+
+    // Pattern 2: Generic "vs" / "v" separator for text clipboard paste
+    const vsSeparator = line.match(/\s+(?:vs|v|-)\s+/i);
+    const oddsRegex = /\b(\d+\.\d{1,2}|\d+[\/\-]\d+|\d+)\b/g;
+    const oddsFound = Array.from(line.matchAll(oddsRegex)).map(m => m[0]);
+
     if (vsSeparator && vsSeparator.index !== undefined) {
-      // Split into left (home) and right (away + odds/meta)
       const separatorIdx = vsSeparator.index;
       const separatorLength = vsSeparator[0].length;
       
       let leftPart = line.substring(0, separatorIdx).trim();
       let rightPart = line.substring(separatorIdx + separatorLength).trim();
 
-      // Remove date / time artifacts from left part
-      leftPart = leftPart.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "").replace(/\b\d{1,2}[/.-]\d{1,2}\b/g, "").replace(/\b[012]?\d:[0-5]\d\b/g, "").trim();
+      leftPart = leftPart
+        .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "")
+        .replace(/\b\d{1,2}[/.-]\d{1,2}\b/g, "")
+        .replace(/\b[012]?\d:[0-5]\d\b/g, "")
+        .trim();
 
-      // Check if odds are directly on this line
       let homeOdd: number | null = null;
       let drawOdd: number | null = null;
       let awayOdd: number | null = null;
 
-      // Check for labeled Hollywoodbets style: 1: X.XX X: X.XX 2: X.XX
-      const labeledMatch = rightPart.match(/1[:\s]+(\d+(?:\.\d+)?|\d+\/\d+)\s+X[:\s]+(\d+(?:\.\d+)?|\d+\/\d+)\s+2[:\s]+(\d+(?:\.\d+)?|\d+\/\d+)/i);
+      const labeledMatch = rightPart.match(/1[:\s]+([\d\.\/\-]+)\s+X[:\s]+([\d\.\/\-]+)\s+2[:\s]+([\d\.\/\-]+)/i);
       if (labeledMatch) {
         homeOdd = parseOdd(labeledMatch[1]);
         drawOdd = parseOdd(labeledMatch[2]);
         awayOdd = parseOdd(labeledMatch[3]);
         rightPart = rightPart.replace(labeledMatch[0], "").trim();
       } else if (oddsFound.length >= 3) {
-        // Grab the last 3 odds found on the line
         const last3 = oddsFound.slice(-3);
         homeOdd = parseOdd(last3[0]);
         drawOdd = parseOdd(last3[1]);
         awayOdd = parseOdd(last3[2]);
       } else if (i + 1 < lines.length) {
-        // Look ahead to the next line for odds (e.g. "1.85 3.20 4.10")
         const nextLine = lines[i + 1];
         const nextOdds = Array.from(nextLine.matchAll(oddsRegex)).map(m => m[0]);
         if (nextOdds.length >= 3) {
@@ -239,13 +361,11 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
         }
       }
 
-      // Clean away team name
       let awayName = rightPart
         .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "")
         .replace(/\b\d{1,2}[/.-]\d{1,2}\b/g, "")
         .replace(/\b[012]?\d:[0-5]\d\b/g, "");
       
-      // Strip odds if they were in the right part
       if (homeOdd && drawOdd && awayOdd) {
         awayName = awayName.replace(new RegExp(`\\b(${homeOdd}|${drawOdd}|${awayOdd})\\b`, "g"), "");
       }
@@ -254,7 +374,6 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
       const homeName = matchCanonicalTeam(leftPart);
 
       if (homeName && cleanAway && homeName.length > 1 && cleanAway.length > 1) {
-        // Default odds if bookmaker line didn't include 3-way odds (e.g. 2.10, 3.25, 3.40)
         const finalHomeOdd = homeOdd || 2.10;
         const finalDrawOdd = drawOdd || 3.25;
         const finalAwayOdd = awayOdd || 3.40;
@@ -262,7 +381,6 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
         const probs = calculateProbabilityDistribution(finalHomeOdd, finalDrawOdd, finalAwayOdd);
         const compositeKey = getFixtureCompositeKey(homeName, cleanAway, activeDate);
 
-        // Derive realistic rank & tactical stats from bookmaker probability
         const isHomeFavored = probs.homeWinPct > probs.awayWinPct;
         const homeRank = isHomeFavored ? Math.max(1, Math.round(10 - probs.homeWinPct / 10)) : Math.min(18, Math.round(8 + probs.awayWinPct / 10));
         const awayRank = !isHomeFavored ? Math.max(1, Math.round(10 - probs.awayWinPct / 10)) : Math.min(18, Math.round(8 + probs.homeWinPct / 10));
