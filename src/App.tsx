@@ -2727,35 +2727,14 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Statistical Confidence Interval metrics based on sample size */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[var(--bg-badge)] border border-[var(--border-primary)] p-4 rounded-xl items-center">
-                        <div className="flex flex-col items-center md:items-start text-center md:text-left">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Model Confidence Level</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-2xl font-black text-[#15803D] dark:text-[#10b981]">
-                              {simulationResult.confidencePercentage}%
-                            </span>
-                            <span className="text-[10px] font-semibold text-slate-500 bg-white dark:bg-emerald-950/20 px-2 py-0.5 rounded-md border border-[var(--border-primary)] shadow-xs">
-                              Matches: {(teamMatrices[predHomeTeam]?.sample_size_matches ?? 0) + (teamMatrices[predAwayTeam]?.sample_size_matches ?? 0)}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-[#64748B] mt-0.5">Asymptotic confidence error bounds</span>
-                        </div>
-
-                        <div className="flex flex-col items-center text-center">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Home Expected Goals Range</span>
-                          <span className="text-lg font-extrabold font-mono text-[#0F172A]">
-                            [{simulationResult.homeConfidenceLower.toFixed(2)} - {simulationResult.homeConfidenceUpper.toFixed(2)}]
+                      {/* Confidence is intentionally unavailable until a calibrated evaluation dataset exists. */}
+                      <div className="bg-[var(--bg-badge)] border border-[var(--border-primary)] p-4 rounded-xl">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">Model Confidence</span>
+                          <span className="text-lg font-black text-amber-600">Unavailable</span>
+                          <span className="text-[10px] text-[#64748B]">
+                            Confidence intervals are not reported from heuristic sample counts. Out-of-sample calibration is required first.
                           </span>
-                          <span className="text-[9px] text-[#15803D] dark:text-[#10b981] font-bold mt-0.5">{predHomeTeam} spread</span>
-                        </div>
-
-                        <div className="flex flex-col items-center md:items-end md:text-right">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Away Expected Goals Range</span>
-                          <span className="text-lg font-extrabold font-mono text-[#0F172A]">
-                            [{simulationResult.awayConfidenceLower.toFixed(2)} - {simulationResult.awayConfidenceUpper.toFixed(2)}]
-                          </span>
-                          <span className="text-[9px] text-[#15803D] dark:text-[#10b981] font-bold mt-0.5">{predAwayTeam} spread</span>
                         </div>
                       </div>
 
