@@ -300,7 +300,7 @@ ${payload}
 `;
 
     const response = await client.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: userPrompt }] }
       ],
@@ -1230,19 +1230,7 @@ app.post("/api/admin/run-ingest-now", async (req, res) => {
 });
 
 // Failsafe recommendation generator when AI quota is exhausted
-function generateFailsafeSelfImprovement(): any {
-  return {
-    recommended_coefficients: {
-      home_advantage_multiplier: 1.15,
-      form_momentum_weight: 0.98,
-      volatility_index: 0.85,
-      fatigue_penalty_modifier: 0.89
-    },
-    meta_improvement_notes: "Advancements in 2026 football analytics confirm that compact defensive low-blocks reduce general shot conversion rates by 12.5%, requiring a subtle increase in home advantage weights to reflect localized fan pressure. Furthermore, analysis of fast-paced leagues (e.g., Sweden Division 1, Chinese Super League) justifies a lower Volatility Index to dampen high scoring deviation, and physical decay modeling supports a slightly heavier fatigue penalty modifier of 0.89 for teams playing matches with less than a 4-day recovery cycle."
-  };
-}
-
-// 2. API: Research self-improvement sports modeling breakthroughs
+// No synthetic self-improvement coefficients are generated on API failure.\n\n// 2. API: Research self-improvement sports modeling breakthroughs
 app.post("/api/self-improvement", async (req, res) => {
   try {
     const { currentCoefficients } = req.body;
@@ -1264,7 +1252,7 @@ You will output a JSON object proposing recommended adjustment values for our gl
 Also output detailed "meta_improvement_notes" explaining the tactical or academic justification for these modifications based on the researched parameters.`;
 
     const response = await client.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       contents: "Research the latest predictive football models for 2026. Propose fine-tuned weights and generate structured improvement logs.",
       config: {
         systemInstruction: systemPrompt,
@@ -1295,9 +1283,11 @@ Also output detailed "meta_improvement_notes" explaining the tactical or academi
     const recommendation = JSON.parse(response.text || "{}");
     return res.json(recommendation);
   } catch (err: any) {
-    // Return high-fidelity analytical fallback parameters when API limits are reached
-    const failsafeRecommendation = generateFailsafeSelfImprovement();
-    return res.json(failsafeRecommendation);
+    console.error("Self-improvement research unavailable:", err.message);
+    return res.status(503).json({
+      error: "Research service unavailable. No synthetic coefficients were generated.",
+      coefficients: null
+    });
   }
 });
 
