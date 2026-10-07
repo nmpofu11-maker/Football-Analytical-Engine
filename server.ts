@@ -346,7 +346,9 @@ ${payload}
 });
 
 // Static database of 100% verified, actual real-world matches played or scheduled for our target teams
-// No hardcoded match slate is treated as real-world evidence.\nconst STATIC_REAL_WORLD_FIXTURES: Record<string, any[]> = {};\n\n// Live, dynamic, zero-quota ESPN web scraper
+// No hardcoded match slate is treated as real-world evidence.\nconst STATIC_REAL_WORLD_FIXTURES: Record<string, any[]> = {};
+
+// Live, dynamic, zero-quota ESPN web scraper
 async function fetchEspnFixtures(dateString: string): Promise<any[]> {
   try {
     const yyyymmdd = dateString.replace(/-/g, "");
