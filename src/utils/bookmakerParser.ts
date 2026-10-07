@@ -2,7 +2,6 @@ import { Fixture } from "../data/fixtures";
 import { getFixtureCompositeKey } from "./fixtureDedupe";
 import { getTodayDateStr } from "./dateUtils";
 import { LOCKED_80_TEAMS } from "../data/favoriteTeams";
-import { Fixture } from "../data/fixtures";
 
 export interface ParsedBookmakerMatch {
   fixture: Fixture;
