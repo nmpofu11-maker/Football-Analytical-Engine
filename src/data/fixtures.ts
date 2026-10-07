@@ -22,7 +22,8 @@ export interface Fixture {
   resultSource?: string;
   odds?: { home: number; draw: number; away: number };
   probabilities?: { homeWinPct: number; drawPct: number; awayWinPct: number; marginPct: number };
-  sourceConfidence?: "verified" | "unverified" | "unknown";\n  ingestedAt?: string;
+  sourceConfidence?: "verified" | "unverified" | "unknown";
+  ingestedAt?: string;
 }
 
 export const FIXTURES_DATA: Fixture[] = [];
