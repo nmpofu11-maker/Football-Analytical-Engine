@@ -334,7 +334,7 @@ ${payload}
   }
 });
 
-// Static database of 100% verified, actual real-world matches played or scheduled for our target teams
+// No hardcoded fixture slate is considered real-world evidence.
 // No hardcoded match slate is treated as real-world evidence.
 const STATIC_REAL_WORLD_FIXTURES: Record<string, any[]> = {};
 
