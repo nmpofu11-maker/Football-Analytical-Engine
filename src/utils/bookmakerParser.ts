@@ -2,6 +2,7 @@ import { Fixture } from "../data/fixtures";
 import { getFixtureCompositeKey } from "./fixtureDedupe";
 import { getTodayDateStr } from "./dateUtils";
 import { LOCKED_80_TEAMS } from "../data/favoriteTeams";
+import { Fixture } from "../data/fixtures";
 
 export interface ParsedBookmakerMatch {
   fixture: Fixture;
@@ -266,15 +267,13 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
       if (homeOdd && drawOdd && awayOdd && leftPart.length > 1 && rightPart.length > 1) {
         const { cleanAway, competition: finalComp } = extractCompetitionAndTeam(rightPart, currentCompetition);
         const homeName = matchCanonicalTeam(leftPart);
+        if (!homeName || !cleanAway || homeName.length <= 1 || cleanAway.length <= 1) {
+          unparsedLines.push(line);
+          continue;
+        }
 
         const probs = calculateProbabilityDistribution(homeOdd, drawOdd, awayOdd);
         const compositeKey = getFixtureCompositeKey(homeName, cleanAway, activeDate);
-
-        const isHomeFavored = probs.homeWinPct > probs.awayWinPct;
-        const homeRank = isHomeFavored ? Math.max(1, Math.round(10 - probs.homeWinPct / 10)) : Math.min(18, Math.round(8 + probs.awayWinPct / 10));
-        const awayRank = !isHomeFavored ? Math.max(1, Math.round(10 - probs.awayWinPct / 10)) : Math.min(18, Math.round(8 + probs.homeWinPct / 10));
-        const possessionRatio = Math.min(68, Math.max(38, Math.round(50 + (probs.homeWinPct - probs.awayWinPct) / 3)));
-        const opponentLowBlock = probs.homeWinPct > 55 || probs.awayWinPct > 55;
         const wasDerby = line.toLowerCase().includes("derby") || finalComp.toLowerCase().includes("derby");
 
         const fixture: Fixture = {
@@ -285,20 +284,10 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
           awayTeam: cleanAway,
           competition: finalComp,
           wasDerby,
-          homeRank,
-          awayRank,
-          homeContinentalGap: 5,
-          awayContinentalGap: 5,
-          opponentLowBlock,
-          hasHighShotAccuracy: probs.homeWinPct > 45,
-          possessionRatio,
-          source: "hollywoodbets-pdf",
+          source: "bookmaker-import",
           isBookmakerProtected: true,
-          odds: {
-            home: homeOdd,
-            draw: drawOdd,
-            away: awayOdd
-          },
+          sourceConfidence: "verified",
+          odds: { home: homeOdd, draw: drawOdd, away: awayOdd },
           probabilities: probs
         };
 
@@ -307,13 +296,10 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
           rawLine: line,
           compositeKey,
           impliedProbabilities: probs,
-          oddsDecimals: {
-            home: homeOdd,
-            draw: drawOdd,
-            away: awayOdd
-          }
+          oddsDecimals: { home: homeOdd, draw: drawOdd, away: awayOdd }
         });
         continue;
+      }        continue;
       }
     }
 
@@ -373,19 +359,9 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
       const { cleanAway, competition: finalComp } = extractCompetitionAndTeam(awayName, currentCompetition);
       const homeName = matchCanonicalTeam(leftPart);
 
-      if (homeName && cleanAway && homeName.length > 1 && cleanAway.length > 1) {
-        const finalHomeOdd = homeOdd || 2.10;
-        const finalDrawOdd = drawOdd || 3.25;
-        const finalAwayOdd = awayOdd || 3.40;
-
-        const probs = calculateProbabilityDistribution(finalHomeOdd, finalDrawOdd, finalAwayOdd);
+      if (homeName && cleanAway && homeName.length > 1 && cleanAway.length > 1 && homeOdd && drawOdd && awayOdd) {
+        const probs = calculateProbabilityDistribution(homeOdd, drawOdd, awayOdd);
         const compositeKey = getFixtureCompositeKey(homeName, cleanAway, activeDate);
-
-        const isHomeFavored = probs.homeWinPct > probs.awayWinPct;
-        const homeRank = isHomeFavored ? Math.max(1, Math.round(10 - probs.homeWinPct / 10)) : Math.min(18, Math.round(8 + probs.awayWinPct / 10));
-        const awayRank = !isHomeFavored ? Math.max(1, Math.round(10 - probs.awayWinPct / 10)) : Math.min(18, Math.round(8 + probs.homeWinPct / 10));
-        const possessionRatio = Math.min(68, Math.max(38, Math.round(50 + (probs.homeWinPct - probs.awayWinPct) / 3)));
-        const opponentLowBlock = probs.homeWinPct > 55 || probs.awayWinPct > 55;
         const wasDerby = line.toLowerCase().includes("derby") || finalComp.toLowerCase().includes("derby");
 
         const fixture: Fixture = {
@@ -396,20 +372,10 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
           awayTeam: cleanAway,
           competition: finalComp,
           wasDerby,
-          homeRank,
-          awayRank,
-          homeContinentalGap: 5,
-          awayContinentalGap: 5,
-          opponentLowBlock,
-          hasHighShotAccuracy: probs.homeWinPct > 45,
-          possessionRatio,
           source: "bookmaker-import",
           isBookmakerProtected: true,
-          odds: {
-            home: finalHomeOdd,
-            draw: finalDrawOdd,
-            away: finalAwayOdd
-          },
+          sourceConfidence: "verified",
+          odds: { home: homeOdd, draw: drawOdd, away: awayOdd },
           probabilities: probs
         };
 
@@ -418,12 +384,10 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
           rawLine: line,
           compositeKey,
           impliedProbabilities: probs,
-          oddsDecimals: {
-            home: finalHomeOdd,
-            draw: finalDrawOdd,
-            away: finalAwayOdd
-          }
+          oddsDecimals: { home: homeOdd, draw: drawOdd, away: awayOdd }
         });
+      } else {
+        unparsedLines.push(line);
       } else {
         unparsedLines.push(line);
       }
