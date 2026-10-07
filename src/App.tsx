@@ -2861,7 +2861,7 @@ export default function App() {
                         onClick={applyProposedResearch}
                         className="bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold px-6 py-2.5 rounded-lg transition"
                       >
-                        Apply Calibration Global Defaults
+                        Review Recommendation (Not Applied)
                       </button>
                     </div>
                   </div>
