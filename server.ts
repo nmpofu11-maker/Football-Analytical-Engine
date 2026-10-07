@@ -1130,20 +1130,19 @@ async function runScheduledIngestAndSettlement() {
     lastIngestDateStr = todayStr;
     console.log(`[CRON] Running daily automated fixture ingestion for ${todayStr}...`);
     try {
-      let fixtures = await fetchSportApiAiFixtures(todayStr);
-      let sourceUsed = "sportapi-ai";
-      if (!fixtures || fixtures.length === 0) {
-        fixtures = await fetchTheRundownFixtures(todayStr);
-        sourceUsed = "therundown";
-      }
-      if (fixtures && fixtures.length > 0) {
+      const primary = await fetchSportApiAiFixtures(todayStr);
+      const secondary = await fetchTheRundownFixtures(todayStr);
+      const fixtures = [...primary, ...secondary];
+      const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+      if (fixtures.length > 0) {
         const manifest = loadPersistedFixturesFromDisk();
         const merged = mergeServerSlates(manifest, fixtures);
         saveFixturesToDisk(merged);
+        generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
         cronStatusInfo.lastIngestTime = new Date().toISOString();
-        cronStatusInfo.lastIngestStatus = `Success: Ingested ${fixtures.length} fixtures from ${sourceUsed}`;
+        cronStatusInfo.lastIngestStatus = `Success: reconciled ${fixtures.length} fixtures from ${sourceUsed}`;
       } else {
-        cronStatusInfo.lastIngestStatus = "No fixtures returned from primary or secondary provider";
+        cronStatusInfo.lastIngestStatus = "No fixtures returned from trusted providers";
       }
     } catch (err: any) {
       console.error("[CRON] Daily ingestion error:", err.message);
@@ -1178,18 +1177,17 @@ app.get("/api/admin/cron-status", (req, res) => {
 app.post("/api/admin/run-ingest-now", async (req, res) => {
   try {
     const targetDate = req.body.date || getTodayDateStrServer();
-    let fixtures = await fetchSportApiAiFixtures(targetDate);
-    let sourceUsed = "sportapi-ai";
-    if (!fixtures || fixtures.length === 0) {
-      fixtures = await fetchTheRundownFixtures(targetDate);
-      sourceUsed = "therundown";
-    }
+    const primary = await fetchSportApiAiFixtures(targetDate);
+    const secondary = await fetchTheRundownFixtures(targetDate);
+    const fixtures = [...primary, ...secondary];
+    const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
     const manifest = loadPersistedFixturesFromDisk();
-    const merged = mergeServerSlates(manifest, fixtures || []);
+    const merged = mergeServerSlates(manifest, fixtures);
     saveFixturesToDisk(merged);
+    generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
 
     cronStatusInfo.lastIngestTime = new Date().toISOString();
-    cronStatusInfo.lastIngestStatus = `Manual ingest success: ${(fixtures || []).length} fixtures from ${sourceUsed}`;
+    cronStatusInfo.lastIngestStatus = `Manual ingest success: reconciled ${fixtures.length} fixtures from ${sourceUsed}`;
 
     return res.json({
       success: true,
