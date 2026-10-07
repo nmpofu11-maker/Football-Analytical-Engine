@@ -168,42 +168,77 @@ function generatePreMatchPredictions(fixtures: any[]) {
 }
 
 // Server-side hardened merge engine
+function sourcePriority(source: string | undefined): number {
+  switch (source) {
+    case "sportapi-ai": return 100;
+    case "therundown": return 90;
+    case "custom-results-api": return 90;
+    case "bookmaker-import":
+    case "hollywoodbets-pdf":
+    case "manual-ingest": return 80;
+    case "espn": return 30;
+    default: return 10;
+  }
+}
+
 function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker = false): any[] {
   const map = new Map<string, any>();
-  for (const item of existing) {
-    const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
-    map.set(key, item);
-  }
-  for (const item of incoming) {
+
+  const put = (item: any, incomingItem = false) => {
+    if (!item?.homeTeam || !item?.awayTeam || !item?.date) return;
     const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
     const prev = map.get(key);
+
     if (!prev) {
       map.set(key, {
         ...item,
-        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.isBookmakerProtected || false
+        sourceConfidence: item.sourceConfidence || (sourcePriority(item.source) >= 80 ? "verified" : "unknown"),
+        ingestedAt: item.ingestedAt || new Date().toISOString(),
+        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || item.isBookmakerProtected || false
       });
-      continue;
+      return;
     }
-    if (prev.isBookmakerProtected || prev.source === "bookmaker-import" || prev.source === "manual-ingest") {
-      if (isIncomingBookmaker) {
-        map.set(key, { ...prev, ...item, isBookmakerProtected: true, source: "bookmaker-import" });
-      } else {
-        // Retain bookmaker slate and merge secondary scoreboard data
-        map.set(key, {
-          ...prev,
-          competition: prev.competition || item.competition,
-          wasDerby: prev.wasDerby || item.wasDerby
-        });
-      }
-    } else {
+
+    const protectedBookmaker = prev.isBookmakerProtected || prev.source === "bookmaker-import" || prev.source === "hollywoodbets-pdf";
+    if (protectedBookmaker && !isIncomingBookmaker && item.source !== "custom-results-api") {
+      // Preserve bookmaker odds/slate identity, but allow verified provider metadata to enrich missing fields.
       map.set(key, {
         ...prev,
-        ...item,
-        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.isBookmakerProtected || false
+        competition: prev.competition || item.competition,
+        status: item.status && item.status !== "NS" ? item.status : prev.status,
+        finalScore: item.finalScore || prev.finalScore,
+        resultSettled: item.resultSettled ?? prev.resultSettled,
+        settledAt: item.settledAt || prev.settledAt,
+        resultSource: item.resultSource || prev.resultSource,
+        sourceConfidence: prev.sourceConfidence === "verified" ? "verified" : (item.sourceConfidence || prev.sourceConfidence)
       });
+      return;
     }
-  }
-  return Array.from(map.values());
+
+    const prevPriority = sourcePriority(prev.source);
+    const nextPriority = sourcePriority(item.source);
+    const nextIsNewer = !prev.ingestedAt || !item.ingestedAt || new Date(item.ingestedAt).getTime() >= new Date(prev.ingestedAt).getTime();
+    const shouldPreferIncoming = incomingItem && (nextPriority > prevPriority || (nextPriority === prevPriority && nextIsNewer));
+
+    const base = shouldPreferIncoming ? prev : item;
+    const overlay = shouldPreferIncoming ? item : prev;
+    map.set(key, {
+      ...base,
+      ...Object.fromEntries(Object.entries(overlay).filter(([k,v]) => v !== undefined && v !== null)),
+      source: shouldPreferIncoming ? item.source : prev.source,
+      sourceConfidence: shouldPreferIncoming ? (item.sourceConfidence || prev.sourceConfidence) : prev.sourceConfidence,
+      ingestedAt: shouldPreferIncoming ? (item.ingestedAt || prev.ingestedAt) : prev.ingestedAt,
+      isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
+    });
+  };
+
+  for (const item of existing) put(item, false);
+  for (const item of incoming) put(item, true);
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.time || "99:99").localeCompare(b.time || "99:99");
+  });
 }
 
 // Lazy init Gemini SDK
