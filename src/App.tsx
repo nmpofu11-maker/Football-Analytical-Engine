@@ -385,12 +385,12 @@ export default function App() {
     });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingTeam || !editForm) return;
-    setTeamMatrices(prev => ({
-      ...prev,
+    const updated = {
+      ...teamMatrices,
       [editingTeam]: {
-        sample_size_matches: Number(editForm.sampleSize),
+        ...teamMatrices[editingTeam],
         learned_coefficients: {
           home_advantage_multiplier: Number(editForm.home_advantage_multiplier),
           form_momentum_weight: Number(editForm.form_momentum_weight),
@@ -398,7 +398,18 @@ export default function App() {
           fatigue_penalty_modifier: Number(editForm.fatigue_penalty_modifier)
         }
       }
-    }));
+    };
+    setTeamMatrices(updated);
+    try {
+      const res = await fetch("/api/matrices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matrices: updated })
+      });
+      if (!res.ok) throw new Error("Server rejected matrix update");
+    } catch (err) {
+      console.warn("Matrix server persistence failed:", err);
+    }
     setEditingTeam(null);
     setEditForm(null);
   };
