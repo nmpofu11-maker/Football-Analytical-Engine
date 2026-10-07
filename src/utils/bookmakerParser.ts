@@ -388,8 +388,6 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
         });
       } else {
         unparsedLines.push(line);
-      } else {
-        unparsedLines.push(line);
       }
     } else {
       unparsedLines.push(line);
