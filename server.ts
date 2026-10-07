@@ -905,24 +905,27 @@ function recordSettledMatchHistoryServer(manifest: any[]) {
           actualOutcome,
           predictedScore: pred ? `${pred.predicted_home_score}-${pred.predicted_away_score}` : "N/A",
           actualScore: `${match.finalScore.home}-${match.finalScore.away}`,
-          isCorrect: pred ? isCorrect : false,
+          isCorrect: pred ? isCorrect : null,
           source: match.resultSource || match.source || "api-football",
           verifiedAt: match.settledAt || new Date().toISOString()
         };
         resultsList.push(resItem);
         modified = true;
 
-        // Connect verification back to live model: call applyCalibrationServer
-        applyCalibrationServer(
-          match.homeTeam,
-          match.awayTeam,
-          match.finalScore.home,
-          match.finalScore.away,
-          pred ? pred.predicted_home_score : 1.35,
-          pred ? pred.predicted_away_score : 1.05,
-          match.wasDerby || false,
-          String(match.id || matchKey)
-        );
+        // Only calibrate from a genuine pre-match prediction. Never invent a fallback prediction.
+        if (pred && pred.predicted_home_xg !== undefined && pred.predicted_away_xg !== undefined) {
+          applyCalibrationServer(
+            match.homeTeam,
+            match.awayTeam,
+            match.finalScore.home,
+            match.finalScore.away,
+            pred.predicted_home_xg,
+            pred.predicted_away_xg,
+            match.wasDerby || false,
+            String(match.id || matchKey),
+            match.resultSource || "trusted-provider"
+          );
+        }
       }
     }
   }
