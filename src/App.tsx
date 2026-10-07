@@ -487,28 +487,7 @@ export default function App() {
 
   const applyProposedResearch = () => {
     if (!proposedUpdates) return;
-    const recommended = proposedUpdates.recommended_coefficients;
-    const notes = proposedUpdates.meta_improvement_notes;
-
-    // Apply to all 80 teams
-    const updated = { ...teamMatrices };
-    Object.keys(updated).forEach(team => {
-      const isFast = isFastPacedLeagueTeam(team);
-      updated[team] = {
-        ...updated[team],
-        learned_coefficients: {
-          home_advantage_multiplier: recommended.home_advantage_multiplier,
-          form_momentum_weight: recommended.form_momentum_weight,
-          volatility_index: isFast ? recommended.volatility_index : 1.00,
-          fatigue_penalty_modifier: recommended.fatigue_penalty_modifier
-        }
-      };
-    });
-
-    setTeamMatrices(updated);
-    setMetaNotes(prev => `[Advancement Upgrade Applied] ${notes}\n\n` + prev);
-    setProposedUpdates(null);
-    alert("Global target team coefficients successfully re-calibrated with sports modeling breakthroughs!");
+    alert("Research recommendations are advisory only. They were not applied to the live model because they have not passed out-of-sample evaluation.");
   };
 
   // Copy JSON Payload to clipboard
