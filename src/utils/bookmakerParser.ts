@@ -301,7 +301,6 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
         continue;
       }
     }
-    }
 
     // Pattern 2: Generic "vs" / "v" separator for text clipboard paste
     const vsSeparator = line.match(/\s+(?:vs|v|-)\s+/i);
