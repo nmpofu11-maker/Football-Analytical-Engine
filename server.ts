@@ -824,62 +824,36 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
     }
   }
 
-  // 2. Fallback: Query Google Search Grounding via Gemini for unsettled matches
+  // 2. Trusted fixture providers are used as the non-AI result fallback.
   const stillUnsettled = updatedManifest.filter((m: any) => !m.resultSettled || m.status !== "FT");
-  if (stillUnsettled.length > 0 && checkAndIncrementQuota()) {
-    try {
-      const client = getGeminiClient();
-      const sampleMatches = stillUnsettled.slice(0, 10);
-      const queryList = sampleMatches.map(m => `"${m.homeTeam}" vs "${m.awayTeam}" on ${m.date}`).join(", ");
+  const datesToVerify = [...new Set(stillUnsettled.filter(m => m.date <= new Date().toISOString().split("T")[0]).map(m => m.date))];
 
-      const systemPrompt = `You are a real-time sports results verification agent. Search Google to find official full-time match scores for these football fixtures: ${queryList}.
-Only return matches that have finished (Full Time / FT). Output a JSON array matching responseSchema.`;
+  for (const date of datesToVerify) {
+    const providerResults = [
+      ...(await fetchSportApiAiFixtures(date)),
+      ...(await fetchTheRundownFixtures(date))
+    ];
 
-      const response = await client.models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: `Find official FT scores for: ${queryList}`,
-        config: {
-          systemInstruction: systemPrompt,
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                homeTeam: { type: Type.STRING },
-                awayTeam: { type: Type.STRING },
-                date: { type: Type.STRING },
-                homeGoals: { type: Type.INTEGER },
-                awayGoals: { type: Type.INTEGER },
-                status: { type: Type.STRING, description: "FT, LIVE, or NS" }
-              },
-              required: ["homeTeam", "awayTeam", "date", "homeGoals", "awayGoals", "status"]
-            }
-          }
-        }
-      });
+    for (let i = 0; i < updatedManifest.length; i++) {
+      const match = updatedManifest[i];
+      if (match.resultSettled && match.status === "FT") continue;
 
-      const parsedScores = JSON.parse(response.text || "[]");
-      for (const scoreItem of parsedScores) {
-        if (scoreItem.status === "FT" || scoreItem.status === "FINISHED") {
-          const key = getCompositeKeyServer(scoreItem.homeTeam, scoreItem.awayTeam, scoreItem.date);
-          const idx = updatedManifest.findIndex(m => getCompositeKeyServer(m.homeTeam, m.awayTeam, m.date) === key);
-          if (idx !== -1 && !updatedManifest[idx].resultSettled) {
-            updatedManifest[idx] = {
-              ...updatedManifest[idx],
-              status: "FT",
-              finalScore: { home: Number(scoreItem.homeGoals), away: Number(scoreItem.awayGoals) },
-              resultSettled: true,
-              settledAt: new Date().toISOString(),
-              resultSource: "gemini-search-grounding"
-            };
-            totalSettled++;
-          }
-        }
+      const found = providerResults.find((r: any) =>
+        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
+        (r.resultSettled === true || r.status === "FT")
+      );
+
+      if (found && found.homeGoals !== undefined && found.awayGoals !== undefined) {
+        updatedManifest[i] = {
+          ...match,
+          status: "FT",
+          finalScore: { home: Number(found.homeGoals), away: Number(found.awayGoals) },
+          resultSettled: true,
+          settledAt: new Date().toISOString(),
+          resultSource: found.source || "trusted-provider"
+        };
+        totalSettled++;
       }
-    } catch (groundingErr: any) {
-      console.warn("Results search grounding scan note:", groundingErr.message);
     }
   }
 
