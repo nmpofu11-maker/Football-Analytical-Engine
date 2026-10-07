@@ -1495,7 +1495,7 @@ export default function App() {
 
                             <div className="border-t border-[#F1F5F9] pt-2.5 flex items-center justify-between">
                               <span className="text-[10px] text-[#64748B] flex items-center gap-1">
-                                {match.wasDerby ? "🔥 Local Derby" : `Rank Gap: ${Math.abs(match.homeRank - match.awayRank)} slots`}
+                                {match.wasDerby ? "🔥 Local Derby" : (match.homeRank && match.awayRank ? `Rank Gap: ${Math.abs(match.homeRank - match.awayRank)} slots` : "Rank gap unavailable")}
                               </span>
                               <button
                                 onClick={() => handleLoadFixtureIntoPredictor(match)}
