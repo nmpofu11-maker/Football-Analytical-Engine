@@ -675,7 +675,7 @@ function checkAndResetResultsApiQuota(): boolean {
 // Get / update Custom Results API settings
 app.get("/api/results/config", (req, res) => {
   checkAndResetResultsApiQuota();
-  return res.json(resultsApiConfig);
+  return res.json({ ...resultsApiConfig, apiKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY) });
 });
 
 app.post("/api/results/config", (req, res) => {
@@ -690,7 +690,7 @@ app.post("/api/results/config", (req, res) => {
     if (cacheTtlMinutes !== undefined) resultsApiConfig.cacheTtlMinutes = Math.max(5, Number(cacheTtlMinutes));
 
     saveResultsConfig();
-    return res.json({ success: true, config: resultsApiConfig });
+    return res.json({ success: true, config: { ...resultsApiConfig, apiKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY) } });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
