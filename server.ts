@@ -393,14 +393,9 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
                     homeTeam: matchedHome,
                     awayTeam: matchedAway,
                     competition: leagueName,
-                    wasDerby: false,
-                    homeRank: Math.floor(Math.random() * 8) + 1,
-                    awayRank: Math.floor(Math.random() * 8) + 1,
-                    homeContinentalGap: 5,
-                    awayContinentalGap: 5,
-                    opponentLowBlock: Math.random() > 0.5,
-                    hasHighShotAccuracy: Math.random() > 0.5,
-                    possessionRatio: 52
+                    source: "espn",
+                    sourceConfidence: "unknown",
+                    ingestedAt: new Date().toISOString()
                   });
                 }
               }
@@ -442,14 +437,9 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
             homeTeam: matchedHome,
             awayTeam: matchedAway,
             competition: "League Match",
-            wasDerby: false,
-            homeRank: 5,
-            awayRank: 6,
-            homeContinentalGap: 5,
-            awayContinentalGap: 5,
-            opponentLowBlock: Math.random() > 0.5,
-            hasHighShotAccuracy: Math.random() > 0.5,
-            possessionRatio: 50
+            source: "espn",
+            sourceConfidence: "unknown",
+            ingestedAt: new Date().toISOString()
           });
         }
       }
