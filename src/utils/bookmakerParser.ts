@@ -299,8 +299,8 @@ export function parseBookmakerRawText(rawText: string, defaultDate?: string): Pa
           oddsDecimals: { home: homeOdd, draw: drawOdd, away: awayOdd }
         });
         continue;
-      }        continue;
       }
+    }
     }
 
     // Pattern 2: Generic "vs" / "v" separator for text clipboard paste
