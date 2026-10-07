@@ -791,7 +791,7 @@ export default function App() {
         const queryDate = selectedFixtureDate === "all" ? todayStr : selectedFixtureDate;
         const response = await fetch(`/api/real-fixtures?date=${queryDate}`);
         if (!response.ok) {
-          throw new Error("Failed to reach server-side Google Grounding service");
+          throw new Error("Failed to reach trusted fixture provider service");
         }
         const data = await response.json();
         if (data.error) {
@@ -1143,7 +1143,7 @@ export default function App() {
                     </button>
                   </div>
                   
-                  {/* Google Search Grounding & Results Scanner Status Indicators */}
+                  {/* Trusted Results Verification & Scanner Status */}
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] bg-[#E8F5E9] text-[#15803D] border border-[#C8E6C9] font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-2xs">
@@ -1206,7 +1206,7 @@ export default function App() {
                       </div>
 
                       <p className="text-slate-600 text-[11px]">
-                        Connect your custom results API URL (e.g. <code className="bg-slate-200 px-1 py-0.5 rounded">https://your-api.com/v1/scores</code>) or push match scores directly to <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">POST /api/results/push-scores</code>. The background worker queries your API or live search every 15 minutes to automatically verify full-time match scores.
+                        Connect a custom results API URL or use the server-authorized score webhook. The background worker verifies full-time scores using configured providers; it does not accept AI-generated scores.
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
