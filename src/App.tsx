@@ -515,10 +515,24 @@ export default function App() {
   };
 
   // Reset all matrices to standard values
-  const handleResetToDefaults = () => {
-    if (confirm("Are you sure you want to reset all team matrices to standard baseline values?")) {
-      setTeamMatrices(generateDefaultMatrices());
-      setMetaNotes("System Default Baseline Restored. Volatility geographic dampening configured.");
+  const handleResetToDefaults = async () => {
+    if (confirm("Are you sure you want to reset all team coefficients to neutral priors? Verified sample sizes will be preserved.")) {
+      const defaults = generateDefaultMatrices();
+      const preserved = Object.fromEntries(Object.entries(defaults).map(([team, value]) => [
+        team,
+        { ...value, sample_size_matches: teamMatrices[team]?.sample_size_matches ?? 0 }
+      ]));
+      setTeamMatrices(preserved);
+      setMetaNotes("Neutral priors restored. Verified sample sizes were preserved.");
+      try {
+        await fetch("/api/matrices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matrices: preserved })
+        });
+      } catch (err) {
+        console.warn("Failed to persist matrix reset:", err);
+      }
     }
   };
 
