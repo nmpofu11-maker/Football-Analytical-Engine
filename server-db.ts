@@ -54,7 +54,9 @@ export interface PredictionDbEntry {
   predicted_outcome: "1" | "X" | "2"; // 1 = Home, X = Draw, 2 = Away
   predicted_home_score: number;
   predicted_away_score: number;
-  confidence: number;
+  confidence: number | null;
+  predicted_home_xg?: number;
+  predicted_away_xg?: number;
   coefficients_snapshot: {
     home: any;
     away: any;
