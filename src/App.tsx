@@ -79,7 +79,7 @@ export default function App() {
 
   const [metaNotes, setMetaNotes] = useState<string>(() => {
     return localStorage.getItem("football_engine_meta_notes") || 
-      "Initial Calibration: Configured baseline pitch-fact parameters and geographic volatility dampeners for fast-paced transition leagues (Japan, Norway, Sweden, South Korea, China). Zero statistical bias verified.";
+      "Baseline coefficients are priors only. Verified match results are required before a team matrix is considered learned.";
   });
 
   const [activeTab, setActiveTab] = useState<"ingest" | "matrix" | "predictor" | "advancement" | "sync" | "fixtures" | "trends" | "bookmaker" | "results-api" | "verified-results">("fixtures");
@@ -196,7 +196,7 @@ export default function App() {
   const syncPayload: SyncPayload = useMemo(() => {
     return {
       sync_timestamp: new Date().toISOString(),
-      model_engine: "gemini-3.8-flash",
+      model_engine: "rule-engine-v1",
       meta_improvement_notes: metaNotes,
       team_intelligence_matrices: teamMatrices
     };
@@ -3121,7 +3121,7 @@ export default function App() {
           <p>© 2026 Football Analytical Engine. Ingestion parameters strictly calibrated for bias-free pitch spreads.</p>
           <div className="flex items-center gap-4">
             <span className="hover:text-[#0F172A] transition">Strict 10 Matrix Rules Standard</span>
-            <span className="hover:text-[#0F172A] transition">Continuous Reinforcement Ingestion</span>
+            <span className="hover:text-[#0F172A] transition">Verified-result calibration only</span>
           </div>
         </div>
       </footer>
