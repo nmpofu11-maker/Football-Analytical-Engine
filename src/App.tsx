@@ -438,7 +438,7 @@ export default function App() {
 
       setResearchConsole(prev => [
         ...prev,
-        "Success! Discovered model break-through parameters.",
+        "Research recommendation returned; live coefficients were not changed.",
         `Recommended parameters calibrated with shot accuracy gaps against compact low blocks.`
       ]);
 
@@ -878,7 +878,7 @@ export default function App() {
                   Locked 80
                 </span>
               </h1>
-              <p className="text-xs text-[#64748B]">Highly Specialised Bias-Free Pitch & Positional Matrix Engine</p>
+              <p className="text-xs text-[#64748B]">Highly Specialised Evidence-Gated Pitch & Positional Matrix Engine</p>
             </div>
           </div>
 
@@ -1012,7 +1012,7 @@ export default function App() {
             }`}
           >
             <Dribbble className="w-4.5 h-4.5" />
-            Bias-Free Match Simulator
+            Evidence-Gated Match Simulator
           </button>
 
           <button 
@@ -1109,7 +1109,7 @@ export default function App() {
                     Upcoming Fixtures & Calendar Matches
                   </h2>
                   <p className="text-sm text-[#64748B] mt-1">
-                    Monitor scheduled matches for the locked profile of 80 teams. Access today's active matches, filter by calendar dates, or instantly load parameters into the bias-free simulation engine.
+                    Monitor scheduled matches for the locked profile of 80 teams. Access today's active matches, filter by calendar dates, or instantly load parameters into the evidence-gated simulation engine.
                   </p>
 
                   {/* SportAPI.ai & TheRundown Pipeline Status Widget */}
@@ -1684,7 +1684,7 @@ export default function App() {
                       className="text-xs p-3 rounded-lg border text-left transition bg-[#F8FAFC] border-[#E2E8F0] text-[#334155] hover:bg-[#F1F5F9] cursor-pointer"
                     >
                       <span className="block font-bold mb-1">Today's Verified Daily Slate</span>
-                      <span className="text-[10px] text-[#64748B] line-clamp-1">3 authentic verified matches for our locked target clubs</span>
+                      <span className="text-[10px] text-[#64748B] line-clamp-1">Verified fixtures from configured sources are shown here when available.</span>
                     </button>
 
                     <button
@@ -2480,7 +2480,7 @@ export default function App() {
             {activeTab === "predictor" && (
               <div className="flex flex-col gap-6">
                 <div>
-                  <h2 className="text-lg font-bold text-[#0F172A]">Bias-Free Head-To-Head Simulator</h2>
+                  <h2 className="text-lg font-bold text-[#0F172A]">Evidence-Gated Head-To-Head Simulator</h2>
                   <p className="text-sm text-[#64748B]">Select Home and Away teams from the locked favorite profile list and configure match context to test the predictive weight engine outputs.</p>
                 </div>
 
@@ -2649,7 +2649,7 @@ export default function App() {
                     <div className="bg-[#15803D] text-white p-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Dribbble className="w-5 h-5" />
-                        <h3 className="text-sm font-bold tracking-tight">Bias-Free Pitch Spread Predictions</h3>
+                        <h3 className="text-sm font-bold tracking-tight">Evidence-Gated Pitch Spread Predictions</h3>
                       </div>
                       <span className="text-xs uppercase bg-[#166534] px-2.5 py-1 rounded font-semibold tracking-wider">
                         Poisson Probability Spreads
@@ -2667,7 +2667,7 @@ export default function App() {
                         </div>
 
                         <div className="text-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Bias-Free Spread score</span>
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Evidence-Gated Spread score</span>
                           <span className="text-3xl font-mono font-bold text-[#0F172A]">
                             {simulationResult.homeScore} - {simulationResult.awayScore}
                           </span>
@@ -2719,7 +2719,7 @@ export default function App() {
 
                       {/* Transparent analytical log matching 10 rules */}
                       <div>
-                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Bias-Free Calculation Transparency Log</span>
+                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Evidence-Gated Calculation Transparency Log</span>
                         <div className="bg-[#FAF9F6] border border-[#E2E8F0] p-4 rounded-xl font-mono text-[10px] text-[#475569] flex flex-col gap-1.5 leading-relaxed">
                           {simulationResult.reasons.map((reason, idx) => (
                             <div key={idx} className="flex items-start gap-2">
@@ -3055,7 +3055,7 @@ export default function App() {
       {/* --- Footer Area --- */}
       <footer className="bg-white border-t border-[#E2E8F0] mt-12 py-6">
         <div className="max-w-7xl mx-auto px-6 text-center text-xs text-[#64748B] flex flex-col md:flex-row items-center justify-between gap-4">
-          <p>© 2026 Football Analytical Engine. Ingestion parameters strictly calibrated for bias-free pitch spreads.</p>
+          <p>© 2026 Football Analytical Engine. Ingestion parameters strictly calibrated for evidence-gated pitch spreads.</p>
           <div className="flex items-center gap-4">
             <span className="hover:text-[#0F172A] transition">Strict 10 Matrix Rules Standard</span>
             <span className="hover:text-[#0F172A] transition">Verified-result calibration only</span>
