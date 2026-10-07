@@ -33,7 +33,8 @@ export function mergeFixtureSlates(
   const priority = (source?: string) => {
     if (source === "sportapi-ai") return 100;
     if (source === "therundown" || source === "custom-results-api") return 90;
-    if (source === "bookmaker-import" || source === "hollywoodbets-pdf" || source === "manual-ingest") return 80;
+    if (source === "bookmaker-import" || source === "hollywoodbets-pdf") return 80;
+    if (source === "manual-ingest") return 50;
     if (source === "espn") return 30;
     return 10;
   };
