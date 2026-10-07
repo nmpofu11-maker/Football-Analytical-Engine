@@ -160,13 +160,13 @@ export default function App() {
   const [predHomeTeam, setPredHomeTeam] = useState<string>("Napoli");
   const [predAwayTeam, setPredAwayTeam] = useState<string>("Club Brugge");
   const [predWasDerby, setPredWasDerby] = useState<boolean>(false);
-  const [predHomeRank, setPredHomeRank] = useState<number>(1);
+  const [predHomeRank, setPredHomeRank] = useState<number | undefined>(undefined);
   const [predAwayRank, setPredAwayRank] = useState<number>(1);
-  const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number>(7);
+  const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number | undefined>(undefined);
   const [predAwayContinentalGap, setPredAwayContinentalGap] = useState<number>(7);
   const [predOpponentLowBlock, setPredOpponentLowBlock] = useState<boolean>(false);
   const [predHighShotAccuracy, setPredHighShotAccuracy] = useState<boolean>(true);
-  const [predPossession, setPredPossession] = useState<number>(55);
+  const [predPossession, setPredPossession] = useState<number | undefined>(undefined);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 
   // Advancement States
@@ -2546,7 +2546,7 @@ export default function App() {
                       <span className="text-xs font-semibold text-[#334155]">Opponent Compact Low-Block:</span>
                       <input
                         type="checkbox"
-                        checked={predOpponentLowBlock}
+                        checked={!!predOpponentLowBlock}
                         onChange={(e) => setPredOpponentLowBlock(e.target.checked)}
                         className="w-4 h-4 text-[#15803D] focus:ring-[#15803D] rounded cursor-pointer"
                       />
@@ -2558,7 +2558,7 @@ export default function App() {
                       <input
                         type="checkbox"
                         disabled={!predOpponentLowBlock}
-                        checked={predHighShotAccuracy}
+                        checked={!!predHighShotAccuracy}
                         onChange={(e) => setPredHighShotAccuracy(e.target.checked)}
                         className="w-4 h-4 text-[#15803D] focus:ring-[#15803D] disabled:opacity-50 rounded cursor-pointer"
                       />
@@ -2568,7 +2568,7 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
                     {/* Standing ranks */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Home Standing Rank: {predHomeRank}</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Home Standing Rank: {predHomeRank ?? "Unknown"}</label>
                       <input
                         type="range"
                         min="1"
@@ -2580,7 +2580,7 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Away Standing Rank: {predAwayRank}</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Away Standing Rank: {predAwayRank ?? "Unknown"}</label>
                       <input
                         type="range"
                         min="1"
@@ -2593,7 +2593,7 @@ export default function App() {
 
                     {/* Possession percentage slider */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Expected Possession Ratio: {predPossession}% - {100 - predPossession}%</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Expected Possession Ratio: {predPossession === undefined ? "Unknown" : `${predPossession}% - ${100 - predPossession}%`}</label>
                       <input
                         type="range"
                         min="25"
@@ -2615,11 +2615,11 @@ export default function App() {
                           min="1"
                           max="14"
                           value={predHomeContinentalGap}
-                          onChange={(e) => setPredHomeContinentalGap(Number(e.target.value))}
+                          onChange={(e) => setPredHomeContinentalGap(e.target.value ? Number(e.target.value) : undefined)}
                           className="text-xs p-1.5 border border-[#E2E8F0] rounded w-16"
                         />
                         <span className="text-[10px] text-[#64748B]">
-                          {predHomeContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
+                          {predHomeContinentalGap === undefined ? "Unknown" : predHomeContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
                         </span>
                       </div>
                     </div>
@@ -2632,11 +2632,11 @@ export default function App() {
                           min="1"
                           max="14"
                           value={predAwayContinentalGap}
-                          onChange={(e) => setPredAwayContinentalGap(Number(e.target.value))}
+                          onChange={(e) => setPredAwayContinentalGap(e.target.value ? Number(e.target.value) : undefined)}
                           className="text-xs p-1.5 border border-[#E2E8F0] rounded w-16"
                         />
                         <span className="text-[10px] text-[#64748B]">
-                          {predAwayContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
+                          {predAwayContinentalGap === undefined ? "Unknown" : predAwayContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
                         </span>
                       </div>
                     </div>
