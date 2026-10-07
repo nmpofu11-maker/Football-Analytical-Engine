@@ -7,7 +7,7 @@ export const LOCKED_80_TEAMS = [
   "Inter Milan Women","Japan U16","Johor Darul Ta'zim FC","KF Laci","Lillestrom B","Linfield Women","Lorenskog U19","Madura United","MC Oran","FK Mladost DG",
   "Mohun Bagan Super Giant","Napoli","NEC Nijmegen","MSK Zilina","Nacional De Football Women","Pattani","Penarol Reserve","Peru Women","Poland Women","PVF-CAND FC",
   "Qingdao Team","Qviding FIF","RC Sporting Charleroi","Real Cartagena","Riga FC","Rigas Futbola Skola","Rijeka","Rosenborg BK Women","FK Rostov Youth","Saldus SS/Leevon",
-  "Shanghai Port","Shanghai Shenhua","Shelbourne Women","Sligo Rovers Women","Slovan Ljubljana","Smedby AIS","St Johnstone F.C.","St. Patrick's Athletic","Stenungsunds IF","Stenungsunds IF",
+  "Shanghai Port","Shanghai Shenhua","Shelbourne Women","Sligo Rovers Women","Slovan Ljubljana","Smedby AIS","St Johnstone F.C.","St. Patrick's Athletic","Stenungsunds IF",
   "Tabor Sezana","Tabora United FC","Taftea IK","Truong Tuoi Dong Nai","Tvaakers IF","Uruguay","Us Pergolettese","Viimsi JK","Vorup FB","Wolfsberger AC Amateure","ZNK Agram (w)"
 ];
 
