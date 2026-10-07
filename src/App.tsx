@@ -1536,23 +1536,23 @@ export default function App() {
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
                     <span className="text-xs text-[#64748B] uppercase font-bold">Total Verified Matches</span>
                     <span className="text-2xl font-extrabold text-[#0F172A]">{verifiedResults.length}</span>
-                    <span className="text-[10px] text-emerald-600 font-medium">Synced from Server & API-Football</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Synced from configured verified result sources</span>
                   </div>
 
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
-                    <span className="text-xs text-[#64748B] uppercase font-bold">Correct Predictions</span>
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Correct Graded Predictions</span>
                     <span className="text-2xl font-extrabold text-emerald-600">
-                      {verifiedResults.filter(r => r.isCorrect).length}
+                      {verifiedResults.filter(r => r.hasPriorPrediction && r.isCorrect).length}
                     </span>
                     <span className="text-[10px] text-[#64748B]">Accurate outcome forecasts</span>
                   </div>
 
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
-                    <span className="text-xs text-[#64748B] uppercase font-bold">Hit Rate Accuracy</span>
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Out-of-Sample Accuracy</span>
                     <span className="text-2xl font-extrabold text-[#0F172A]">
-                      {verifiedResults.length > 0 ? Math.round((verifiedResults.filter(r => r.isCorrect).length / verifiedResults.length) * 100) : 0}%
+                      {(() => { const graded = verifiedResults.filter(r => r.hasPriorPrediction); return graded.length > 0 ? Math.round((graded.filter(r => r.isCorrect).length / graded.length) * 100) : null; })() === null ? "Unavailable" : `${(() => { const graded = verifiedResults.filter(r => r.hasPriorPrediction); return Math.round((graded.filter(r => r.isCorrect).length / graded.length) * 100); })()}%`}
                     </span>
-                    <span className="text-[10px] text-[#64748B]">Model track record</span>
+                    <span className="text-[10px] text-[#64748B]">Only graded pre-match predictions are included</span>
                   </div>
                 </div>
 
