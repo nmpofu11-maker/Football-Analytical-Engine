@@ -202,70 +202,24 @@ export default function App() {
     };
   }, [teamMatrices, metaNotes]);
 
-  // --- 3.1 Historical Coefficients Rolling Average Trend Generation ---
+  // --- 3.1 Historical Coefficients: real verified calibration events only ---
   const trendData = useMemo(() => {
-    const teamLogs = coeffHistoryLogs.filter(h => h.team.toLowerCase() === trendTeam.toLowerCase());
-    if (teamLogs.length > 0) {
-      return teamLogs.map((h, idx) => ({
-        name: `Match ${idx + 1} (${new Date(h.timestamp).toLocaleDateString()})`,
-        "Home Adv (5-M Avg)": h.home_advantage_multiplier,
-        "Form Momentum (5-M Avg)": h.form_momentum_weight,
-        "Volatility (5-M Avg)": h.volatility_index,
-        "Fatigue Penalty (5-M Avg)": h.fatigue_penalty_modifier
-      }));
-    }
+    const teamLogs = coeffHistoryLogs
+      .filter(h => h.team.toLowerCase() === trendTeam.toLowerCase())
+      .sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const defaultMatrix = {
-      sample_size_matches: 0,
-      learned_coefficients: {
-        home_advantage_multiplier: 1.12,
-        form_momentum_weight: 1.15,
-        volatility_index: 1.00,
-        fatigue_penalty_modifier: 0.95
-      }
-    };
-    const currentMatrix = teamMatrices[trendTeam] || defaultMatrix;
-    const baseCoeffs = currentMatrix.learned_coefficients;
-    
-    // Create a deterministic seed based on the team name to guarantee stable, reproducible paths
-    const teamSeed = trendTeam.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    
-    // Generate 15 matches of historical coefficient timeline
-    const rawHistory = Array.from({ length: 15 }).map((_, idx) => {
-      // Deterministic periodic variations representing game-by-game adjustments
-      const factorH = Math.sin((teamSeed + idx * 3.7) * 0.45) * 0.08;
-      const factorM = Math.cos((teamSeed - idx * 2.9) * 0.5) * 0.07;
-      const factorV = Math.sin((teamSeed * 1.3 + idx * 4.1) * 0.35) * 0.10;
-      const factorF = Math.cos((teamSeed * 0.75 - idx * 1.8) * 0.4) * 0.05;
-      
+    return teamLogs.map((_, idx) => {
+      const windowPoints = teamLogs.slice(Math.max(0, idx - 4), idx + 1);
+      const avg = (key: string) => windowPoints.reduce((sum, p) => sum + Number(p[key] || 0), 0) / windowPoints.length;
       return {
-        home_advantage_multiplier: Math.max(1.0, +(baseCoeffs.home_advantage_multiplier + factorH).toFixed(3)),
-        form_momentum_weight: Math.max(1.0, +(baseCoeffs.form_momentum_weight + factorM).toFixed(3)),
-        volatility_index: Math.max(0.5, +(baseCoeffs.volatility_index + factorV).toFixed(3)),
-        fatigue_penalty_modifier: Math.max(0.7, +(baseCoeffs.fatigue_penalty_modifier + factorF).toFixed(3))
+        name: `Calibration ${idx + 1}`,
+        "Home Adv (5-event Avg)": +avg("home_advantage_multiplier").toFixed(3),
+        "Form Momentum (5-event Avg)": +avg("form_momentum_weight").toFixed(3),
+        "Volatility (5-event Avg)": +avg("volatility_index").toFixed(3),
+        "Fatigue Penalty (5-event Avg)": +avg("fatigue_penalty_modifier").toFixed(3)
       };
     });
-    
-    // Map raw points to their corresponding 5-match rolling averages
-    return rawHistory.map((_, idx) => {
-      const startIndex = Math.max(0, idx - 4);
-      const windowPoints = rawHistory.slice(startIndex, idx + 1);
-      const count = windowPoints.length;
-      
-      const avgH = windowPoints.reduce((sum, p) => sum + p.home_advantage_multiplier, 0) / count;
-      const avgM = windowPoints.reduce((sum, p) => sum + p.form_momentum_weight, 0) / count;
-      const avgV = windowPoints.reduce((sum, p) => sum + p.volatility_index, 0) / count;
-      const avgF = windowPoints.reduce((sum, p) => sum + p.fatigue_penalty_modifier, 0) / count;
-      
-      return {
-        name: `Match ${idx + 1}`,
-        "Home Adv (5-M Avg)": +avgH.toFixed(3),
-        "Form Momentum (5-M Avg)": +avgM.toFixed(3),
-        "Volatility (5-M Avg)": +avgV.toFixed(3),
-        "Fatigue Penalty (5-M Avg)": +avgF.toFixed(3)
-      };
-    });
-  }, [trendTeam, teamMatrices]);
+  }, [trendTeam, coeffHistoryLogs]);
 
   // --- 4. Event Handlers ---
   
@@ -3045,7 +2999,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Home Adv (5-M Avg)"
+                          dataKey="Home Adv (5-event Avg)"
                           stroke="#10b981"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3053,7 +3007,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Form Momentum (5-M Avg)"
+                          dataKey="Form Momentum (5-event Avg)"
                           stroke="#3b82f6"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3061,7 +3015,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Volatility (5-M Avg)"
+                          dataKey="Volatility (5-event Avg)"
                           stroke="#f59e0b"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3069,7 +3023,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Fatigue Penalty (5-M Avg)"
+                          dataKey="Fatigue Penalty (5-event Avg)"
                           stroke="#ef4444"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
