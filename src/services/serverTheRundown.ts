@@ -65,7 +65,8 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           awayGoals: awayScore !== null && awayScore !== undefined ? Number(awayScore) : undefined,
           resultSettled: isFinished,
           source: "therundown",
-          sourceConfidence: "verified",\n        ingestedAt: new Date().toISOString()
+          sourceConfidence: "verified",
+        ingestedAt: new Date().toISOString()
         });
       }
     } catch (e: any) {
