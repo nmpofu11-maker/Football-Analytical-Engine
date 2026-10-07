@@ -161,11 +161,11 @@ export default function App() {
   const [predAwayTeam, setPredAwayTeam] = useState<string>("Club Brugge");
   const [predWasDerby, setPredWasDerby] = useState<boolean>(false);
   const [predHomeRank, setPredHomeRank] = useState<number | undefined>(undefined);
-  const [predAwayRank, setPredAwayRank] = useState<number>(1);
+  const [predAwayRank, setPredAwayRank] = useState<number | undefined>(undefined);
   const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number | undefined>(undefined);
-  const [predAwayContinentalGap, setPredAwayContinentalGap] = useState<number>(7);
-  const [predOpponentLowBlock, setPredOpponentLowBlock] = useState<boolean>(false);
-  const [predHighShotAccuracy, setPredHighShotAccuracy] = useState<boolean>(true);
+  const [predAwayContinentalGap, setPredAwayContinentalGap] = useState<number | undefined>(undefined);
+  const [predOpponentLowBlock, setPredOpponentLowBlock] = useState<boolean | undefined>(undefined);
+  const [predHighShotAccuracy, setPredHighShotAccuracy] = useState<boolean | undefined>(undefined);
   const [predPossession, setPredPossession] = useState<number | undefined>(undefined);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 
@@ -851,7 +851,7 @@ export default function App() {
   const handleLoadFixtureIntoPredictor = (fixture: Fixture) => {
     setPredHomeTeam(fixture.homeTeam);
     setPredAwayTeam(fixture.awayTeam);
-    setPredWasDerby(fixture.wasDerby);
+    setPredWasDerby(fixture.wasDerby ?? false);
     setPredHomeRank(fixture.homeRank);
     setPredAwayRank(fixture.awayRank);
     setPredHomeContinentalGap(fixture.homeContinentalGap);
