@@ -698,6 +698,11 @@ app.post("/api/results/config", (req, res) => {
 
 // Webhook / Direct endpoint to push match final scores from custom API
 app.post("/api/results/push-scores", (req, res) => {
+  const configuredSecret = process.env.RESULTS_WEBHOOK_SECRET;
+  const providedSecret = req.header("x-results-webhook-secret");
+  if (!configuredSecret || !providedSecret || providedSecret !== configuredSecret) {
+    return res.status(401).json({ error: "Authorized results webhook secret required." });
+  }
   try {
     const { scores } = req.body; // Array of { homeTeam, awayTeam, date, homeGoals, awayGoals, status }
     if (!scores || !Array.isArray(scores)) {
