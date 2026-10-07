@@ -175,7 +175,7 @@ function sourcePriority(source: string | undefined): number {
     case "custom-results-api": return 90;
     case "bookmaker-import":
     case "hollywoodbets-pdf":
-    case "manual-ingest": return 80;
+    case "manual-ingest": return 50;
     case "espn": return 30;
     default: return 10;
   }
