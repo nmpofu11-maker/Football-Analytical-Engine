@@ -130,7 +130,7 @@ export default function App() {
 
   // Automated Results Scanner & Custom API States (Quota Protection)
   const [customResultsApiUrl, setCustomResultsApiUrl] = useState<string>("");
-  const [customResultsApiKey, setCustomResultsApiKey] = useState<string>("");
+  const [resultsApiKeyConfigured, setResultsApiKeyConfigured] = useState<boolean>(false);
   const [autoResultsScan, setAutoResultsScan] = useState<boolean>(true);
   const [maxCallsPerDay, setMaxCallsPerDay] = useState<number>(10);
   const [todayCallsCount, setTodayCallsCount] = useState<number>(0);
@@ -691,7 +691,7 @@ export default function App() {
       .then(res => res.json())
       .then(data => {
         if (data.apiUrl !== undefined) setCustomResultsApiUrl(data.apiUrl);
-        if (data.apiKey !== undefined) setCustomResultsApiKey(data.apiKey);
+        if (data.apiKeyConfigured !== undefined) setResultsApiKeyConfigured(Boolean(data.apiKeyConfigured));
         if (data.autoScanEnabled !== undefined) setAutoResultsScan(data.autoScanEnabled);
         if (data.maxCallsPerDay !== undefined) setMaxCallsPerDay(data.maxCallsPerDay);
         if (data.todayCallsCount !== undefined) setTodayCallsCount(data.todayCallsCount);
@@ -710,7 +710,6 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiUrl: customResultsApiUrl,
-          apiKey: customResultsApiKey,
           autoScanEnabled: autoResultsScan,
           maxCallsPerDay,
           scanIntervalHours,
@@ -1244,7 +1243,7 @@ export default function App() {
                             onChange={(e) => setAutoResultsScan(e.target.checked)}
                             className="rounded border-slate-300 text-[#15803D] focus:ring-[#15803D]"
                           />
-                          <span>Enable Auto-Scan every 15 mins</span>
+                          <span>Enable Auto-Scan on the configured interval</span>
                         </label>
                       </div>
 
@@ -1263,15 +1262,8 @@ export default function App() {
                             className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
                           />
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">API Authorization Key (Optional)</label>
-                          <input
-                            type="password"
-                            placeholder="Bearer or x-api-key"
-                            value={customResultsApiKey}
-                            onChange={(e) => setCustomResultsApiKey(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
-                          />
+                        <div className="flex items-center text-[10px] text-slate-500">
+                          Server API key configured: <strong className="ml-1">{resultsApiKeyConfigured ? "Yes" : "No"}</strong>
                         </div>
                       </div>
 
@@ -2076,20 +2068,8 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        API Authorization Key / Token (Optional)
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Bearer token or x-api-key"
-                        value={customResultsApiKey}
-                        onChange={(e) => setCustomResultsApiKey(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-sky-600"
-                      />
-                      <span className="text-[10px] text-slate-500 mt-1 block">
-                        Passed in header as Authorization Bearer & x-api-key.
-                      </span>
+                    <div className="flex items-center text-xs text-slate-600">
+                      <span>Server API key configured: <strong className="ml-1">{resultsApiKeyConfigured ? "Yes" : "No"}</strong></span>
                     </div>
                   </div>
 
