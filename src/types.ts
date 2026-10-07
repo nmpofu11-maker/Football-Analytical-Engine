@@ -8,6 +8,7 @@ export interface LearnedCoefficients {
 export interface TeamIntelligenceMatrix {
   sample_size_matches: number;
   learned_coefficients: LearnedCoefficients;
+  last_calibrated_at?: string;
 }
 
 export interface SyncPayload {
@@ -29,9 +30,9 @@ export interface MatchReport {
   homePossession: number;
   awayPossession: number;
   pitchFacts: string[];
-  wasDerby: boolean;
-  competition: string;
-  isFastPacedLeague: boolean;
+  wasDerby?: boolean;
+  competition?: string;
+  isFastPacedLeague?: boolean;
 }
 
 export interface SimulationResult {
@@ -43,9 +44,10 @@ export interface SimulationResult {
   reasons: string[];
   homeExpectedGoals: number;
   awayExpectedGoals: number;
-  confidencePercentage: number;
-  homeConfidenceLower: number;
-  homeConfidenceUpper: number;
-  awayConfidenceLower: number;
-  awayConfidenceUpper: number;
+  confidencePercentage: number | null;
+  homeConfidenceLower: number | null;
+  homeConfidenceUpper: number | null;
+  awayConfidenceLower: number | null;
+  awayConfidenceUpper: number | null;
+  confidenceStatus: "available" | "insufficient-data";
 }

@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import * as pdfParseModule from "pdf-parse";
 import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams";
 import { parseBookmakerRawText } from "./src/utils/bookmakerParser";
+import { simulateMatchup } from "./src/utils/footballMath";
 import { fetchSportApiAiFixtures } from "./src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "./src/services/serverTheRundown";
 import {
@@ -126,102 +127,107 @@ function saveFixturesToDisk(fixtures: any[]): boolean {
 // Pre-match prediction simulation using server matrices
 function simulateMatchupServer(match: any) {
   const matrices = getMatrices();
-  const homeMatrix = matrices[match.homeTeam] || { learned_coefficients: { home_advantage_multiplier: 1.12, form_momentum_weight: 1.0, fatigue_penalty_modifier: 0.95 } };
-  const awayMatrix = matrices[match.awayTeam] || { learned_coefficients: { home_advantage_multiplier: 1.12, form_momentum_weight: 1.0, fatigue_penalty_modifier: 0.95 } };
-
-  const homeCoeffs = homeMatrix.learned_coefficients;
-  const awayCoeffs = awayMatrix.learned_coefficients;
-
-  const rankDiff = (match.awayRank || 10) - (match.homeRank || 10);
-  const baseHomeXg = 1.35 + (rankDiff * 0.05) * homeCoeffs.home_advantage_multiplier;
-  const baseAwayXg = 1.05 - (rankDiff * 0.05) * awayCoeffs.form_momentum_weight;
-
-  const homeXg = Math.max(0.2, baseHomeXg * (match.hasHighShotAccuracy ? 1.15 : 1.0) * (match.homeContinentalGap <= 3 ? homeCoeffs.fatigue_penalty_modifier : 1.0));
-  const awayXg = Math.max(0.2, baseAwayXg * (match.opponentLowBlock ? 0.9 : 1.0) * (match.awayContinentalGap <= 3 ? awayCoeffs.fatigue_penalty_modifier : 1.0));
-
-  const homeScore = Math.round(homeXg);
-  const awayScore = Math.round(awayXg);
-
-  const outcome = homeScore > awayScore ? "1" : homeScore < awayScore ? "2" : "X";
-
-  return {
-    homeScore,
-    awayScore,
-    outcome,
-    confidence: Math.round(65 + Math.abs(homeXg - awayXg) * 15),
-    homeXg,
-    awayXg,
-    snapshot: {
-      home: homeCoeffs,
-      away: awayCoeffs
-    }
-  };
+  const homeMatrix = matrices[match.homeTeam] || { sample_size_matches: 0, learned_coefficients: { home_advantage_multiplier: 1, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 } };
+  const awayMatrix = matrices[match.awayTeam] || { sample_size_matches: 0, learned_coefficients: { home_advantage_multiplier: 1, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 } };
+  const result = simulateMatchup(
+    match.homeTeam, match.awayTeam,
+    homeMatrix.learned_coefficients, awayMatrix.learned_coefficients,
+    match.wasDerby, match.homeRank, match.awayRank,
+    match.homeContinentalGap, match.awayContinentalGap,
+    match.opponentLowBlock, match.hasHighShotAccuracy, match.possessionRatio,
+    homeMatrix.sample_size_matches, awayMatrix.sample_size_matches
+  );
+  return { result, homeCoefficients: homeMatrix.learned_coefficients, awayCoefficients: awayMatrix.learned_coefficients };
 }
 
 function generatePreMatchPredictions(fixtures: any[]) {
   const existingPreds = getPredictions();
   let added = 0;
-
   for (const f of fixtures) {
+    if (f.sourceConfidence === "unknown") continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
     const alreadyExists = existingPreds.some(p => p.fixture_id === matchKey || p.fixture_id === String(f.id));
     if (!alreadyExists) {
       const sim = simulateMatchupServer(f);
       addPrediction({
         fixture_id: matchKey || String(f.id),
-        predicted_outcome: sim.outcome as any,
-        predicted_home_score: sim.homeScore,
-        predicted_away_score: sim.awayScore,
-        confidence: sim.confidence,
-        coefficients_snapshot: sim.snapshot,
-        model_version: "gemini-2.5-flash",
+        predicted_outcome: (sim.result.homeScore > sim.result.awayScore ? "1" : sim.result.homeScore < sim.result.awayScore ? "2" : "X") as any,
+        predicted_home_score: sim.result.homeScore,
+        predicted_away_score: sim.result.awayScore,
+        predicted_home_xg: sim.result.homeExpectedGoals,
+        predicted_away_xg: sim.result.awayExpectedGoals,
+        confidence: sim.result.confidencePercentage,
+        coefficients_snapshot: { home: sim.homeCoefficients, away: sim.awayCoefficients },
+        model_version: "rule-engine-v1",
         source: f.source || "model-engine"
       });
       added++;
     }
   }
-  if (added > 0) {
-    console.log(`[PREDICTION ENGINE] Generated and froze ${added} pre-match predictions before kickoff.`);
-  }
+  if (added > 0) console.log(`[PREDICTION ENGINE] Generated and froze ${added} pre-match predictions before kickoff.`);
 }
 
 // Server-side hardened merge engine
+function sourcePriority(source: string | undefined): number {
+  switch (source) {
+    case "sportapi-ai": return 100;
+    case "therundown":
+    case "custom-results-api": return 90;
+    case "bookmaker-import":
+    case "hollywoodbets-pdf":
+    case "manual-ingest": return 50;
+    case "espn": return 30;
+    default: return 10;
+  }
+}
+
 function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker = false): any[] {
   const map = new Map<string, any>();
-  for (const item of existing) {
-    const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
-    map.set(key, item);
-  }
-  for (const item of incoming) {
+  const put = (item: any, incomingItem: boolean) => {
+    if (!item?.homeTeam || !item?.awayTeam || !item?.date) return;
     const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
     const prev = map.get(key);
     if (!prev) {
       map.set(key, {
         ...item,
-        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.isBookmakerProtected || false
+        sourceConfidence: item.sourceConfidence || (sourcePriority(item.source) >= 80 ? "verified" : "unknown"),
+        ingestedAt: item.ingestedAt || new Date().toISOString(),
+        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || item.isBookmakerProtected || false
       });
-      continue;
+      return;
     }
-    if (prev.isBookmakerProtected || prev.source === "bookmaker-import" || prev.source === "manual-ingest") {
-      if (isIncomingBookmaker) {
-        map.set(key, { ...prev, ...item, isBookmakerProtected: true, source: "bookmaker-import" });
-      } else {
-        // Retain bookmaker slate and merge secondary scoreboard data
-        map.set(key, {
-          ...prev,
-          competition: prev.competition || item.competition,
-          wasDerby: prev.wasDerby || item.wasDerby
-        });
-      }
-    } else {
+    const protectedBookmaker = prev.isBookmakerProtected || prev.source === "bookmaker-import" || prev.source === "hollywoodbets-pdf";
+    if (protectedBookmaker && !isIncomingBookmaker && item.source !== "custom-results-api") {
       map.set(key, {
         ...prev,
-        ...item,
-        isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.isBookmakerProtected || false
+        competition: prev.competition || item.competition,
+        status: item.status && item.status !== "NS" ? item.status : prev.status,
+        finalScore: item.finalScore || prev.finalScore,
+        resultSettled: item.resultSettled ?? prev.resultSettled,
+        settledAt: item.settledAt || prev.settledAt,
+        resultSource: item.resultSource || prev.resultSource,
+        sourceConfidence: prev.sourceConfidence === "verified" ? "verified" : (item.sourceConfidence || prev.sourceConfidence)
       });
+      return;
     }
-  }
-  return Array.from(map.values());
+    const prevPriority = sourcePriority(prev.source);
+    const nextPriority = sourcePriority(item.source);
+    const nextIsNewer = !prev.ingestedAt || !item.ingestedAt || new Date(item.ingestedAt).getTime() >= new Date(prev.ingestedAt).getTime();
+    const useIncoming = incomingItem && (nextPriority > prevPriority || (nextPriority === prevPriority && nextIsNewer));
+    const base = useIncoming ? prev : item;
+    const overlay = useIncoming ? item : prev;
+    map.set(key, {
+      ...base,
+      ...Object.fromEntries(Object.entries(overlay).filter(([k,v]) => v !== undefined && v !== null)),
+      source: useIncoming ? item.source : prev.source,
+      sourceConfidence: useIncoming ? (item.sourceConfidence || prev.sourceConfidence) : prev.sourceConfidence,
+      ingestedAt: useIncoming ? (item.ingestedAt || prev.ingestedAt) : prev.ingestedAt,
+      isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
+    });
+  };
+  for (const item of existing) put(item, false);
+  for (const item of incoming) put(item, true);
+  return Array.from(map.values()).sort((a,b) => a.date === b.date ? (a.time || "99:99").localeCompare(b.time || "99:99") : a.date.localeCompare(b.date));
 }
 
 // Lazy init Gemini SDK
@@ -283,7 +289,7 @@ ${payload}
 `;
 
     const response = await client.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: userPrompt }] }
       ],
@@ -328,175 +334,9 @@ ${payload}
   }
 });
 
-// Static database of 100% verified, actual real-world matches played or scheduled for our target teams
-const STATIC_REAL_WORLD_FIXTURES: Record<string, any[]> = {
-  "2026-09-19": [
-    {
-      id: "real-sep-19-1",
-      date: "2026-09-19",
-      time: "16:15",
-      homeTeam: "RC Sporting Charleroi",
-      awayTeam: "Cercle Brugge",
-      competition: "Belgian Pro League",
-      wasDerby: false,
-      homeRank: 6,
-      awayRank: 11,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: false,
-      possessionRatio: 51
-    },
-    {
-      id: "real-sep-19-2",
-      date: "2026-09-19",
-      time: "08:00",
-      homeTeam: "Boulogne",
-      awayTeam: "FC Nantes",
-      competition: "Ligue 1",
-      wasDerby: false,
-      homeRank: 15,
-      awayRank: 9,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: false,
-      possessionRatio: 46
-    },
-    {
-      id: "real-sep-19-3",
-      date: "2026-09-19",
-      time: "20:30",
-      homeTeam: "Universitatea Craiova",
-      awayTeam: "Fotbal Club FCSB",
-      competition: "SuperLiga",
-      wasDerby: false,
-      homeRank: 3,
-      awayRank: 4,
-      homeContinentalGap: 7,
-      awayContinentalGap: 5,
-      opponentLowBlock: false,
-      hasHighShotAccuracy: true,
-      possessionRatio: 49
-    }
-  ],
-  "2026-09-20": [
-    {
-      id: "real-sep-20-1",
-      date: "2026-09-20",
-      time: "18:00",
-      homeTeam: "Club Brugge",
-      awayTeam: "Genk",
-      competition: "Belgian Pro League",
-      wasDerby: false,
-      homeRank: 2,
-      awayRank: 4,
-      homeContinentalGap: 4,
-      awayContinentalGap: 5,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: true,
-      possessionRatio: 58
-    },
-    {
-      id: "real-sep-20-2",
-      date: "2026-09-20",
-      time: "15:00",
-      homeTeam: "Fiorentina",
-      awayTeam: "Napoli",
-      competition: "Serie A",
-      wasDerby: false,
-      homeRank: 8,
-      awayRank: 3,
-      homeContinentalGap: 5,
-      awayContinentalGap: 6,
-      opponentLowBlock: false,
-      hasHighShotAccuracy: true,
-      possessionRatio: 48
-    },
-    {
-      id: "real-sep-20-3",
-      date: "2026-09-20",
-      time: "14:30",
-      homeTeam: "NEC Nijmegen",
-      awayTeam: "Go Ahead Eagles",
-      competition: "Eredivisie",
-      wasDerby: false,
-      homeRank: 10,
-      awayRank: 12,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: false,
-      possessionRatio: 52
-    },
-    {
-      id: "real-sep-20-4",
-      date: "2026-09-20",
-      time: "19:00",
-      homeTeam: "Dinamo Zagreb",
-      awayTeam: "Lokomotiva Zagreb",
-      competition: "Croatian Football League",
-      wasDerby: true,
-      homeRank: 1,
-      awayRank: 6,
-      homeContinentalGap: 4,
-      awayContinentalGap: 7,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: true,
-      possessionRatio: 65
-    },
-    {
-      id: "real-sep-20-5",
-      date: "2026-09-20",
-      time: "17:00",
-      homeTeam: "Rijeka",
-      awayTeam: "Hajduk Split",
-      competition: "Croatian Football League",
-      wasDerby: false,
-      homeRank: 3,
-      awayRank: 2,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: false,
-      hasHighShotAccuracy: true,
-      possessionRatio: 54
-    }
-  ],
-  "2026-09-21": [
-    {
-      id: "real-sep-21-1",
-      date: "2026-09-21",
-      time: "19:00",
-      homeTeam: "Tvaakers IF",
-      awayTeam: "Angelholms FF",
-      competition: "Swedish Division 1",
-      wasDerby: false,
-      homeRank: 9,
-      awayRank: 12,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: true,
-      hasHighShotAccuracy: false,
-      possessionRatio: 50
-    },
-    {
-      id: "real-sep-21-2",
-      date: "2026-09-21",
-      time: "19:30",
-      homeTeam: "Sligo Rovers Women",
-      awayTeam: "Shamrock Rovers Women",
-      competition: "Women's National League",
-      wasDerby: false,
-      homeRank: 8,
-      awayRank: 4,
-      homeContinentalGap: 7,
-      awayContinentalGap: 7,
-      opponentLowBlock: false,
-      hasHighShotAccuracy: true,
-      possessionRatio: 45
-    }
-  ]
-};
+// No hardcoded fixture slate is considered real-world evidence.
+// No hardcoded match slate is treated as real-world evidence.
+const STATIC_REAL_WORLD_FIXTURES: Record<string, any[]> = {};
 
 // Live, dynamic, zero-quota ESPN web scraper
 async function fetchEspnFixtures(dateString: string): Promise<any[]> {
@@ -553,14 +393,9 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
                     homeTeam: matchedHome,
                     awayTeam: matchedAway,
                     competition: leagueName,
-                    wasDerby: false,
-                    homeRank: Math.floor(Math.random() * 8) + 1,
-                    awayRank: Math.floor(Math.random() * 8) + 1,
-                    homeContinentalGap: 5,
-                    awayContinentalGap: 5,
-                    opponentLowBlock: Math.random() > 0.5,
-                    hasHighShotAccuracy: Math.random() > 0.5,
-                    possessionRatio: 52
+                    source: "espn",
+                    sourceConfidence: "unknown",
+                    ingestedAt: new Date().toISOString()
                   });
                 }
               }
@@ -602,14 +437,9 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
             homeTeam: matchedHome,
             awayTeam: matchedAway,
             competition: "League Match",
-            wasDerby: false,
-            homeRank: 5,
-            awayRank: 6,
-            homeContinentalGap: 5,
-            awayContinentalGap: 5,
-            opponentLowBlock: Math.random() > 0.5,
-            hasHighShotAccuracy: Math.random() > 0.5,
-            possessionRatio: 50
+            source: "espn",
+            sourceConfidence: "unknown",
+            ingestedAt: new Date().toISOString()
           });
         }
       }
@@ -774,7 +604,6 @@ const RESULTS_CONFIG_FILE = path.join(DATA_DIR, "results-config.json");
 
 let resultsApiConfig = {
   apiUrl: "",
-  apiKey: "",
   autoScanEnabled: true,
   maxCallsPerDay: 10,            // Strict limit for this app (out of 100 total user quota)
   todayCallsCount: 0,             // Number of API calls made today
@@ -825,14 +654,13 @@ function checkAndResetResultsApiQuota(): boolean {
 // Get / update Custom Results API settings
 app.get("/api/results/config", (req, res) => {
   checkAndResetResultsApiQuota();
-  return res.json(resultsApiConfig);
+  return res.json({ ...resultsApiConfig, apiKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY) });
 });
 
 app.post("/api/results/config", (req, res) => {
   try {
-    const { apiUrl, apiKey, autoScanEnabled, maxCallsPerDay, scanIntervalHours, onlyScanDuringMatches, cacheTtlMinutes } = req.body;
-    if (apiUrl !== undefined) resultsApiConfig.apiUrl = apiUrl;
-    if (apiKey !== undefined) resultsApiConfig.apiKey = apiKey;
+    const { apiUrl, autoScanEnabled, maxCallsPerDay, scanIntervalHours, onlyScanDuringMatches, cacheTtlMinutes } = req.body;
+    if (apiUrl !== undefined) resultsApiConfig.apiUrl = String(apiUrl).trim();
     if (autoScanEnabled !== undefined) resultsApiConfig.autoScanEnabled = Boolean(autoScanEnabled);
     if (maxCallsPerDay !== undefined) resultsApiConfig.maxCallsPerDay = Math.max(1, Math.min(100, Number(maxCallsPerDay)));
     if (scanIntervalHours !== undefined) resultsApiConfig.scanIntervalHours = Math.max(1, Number(scanIntervalHours));
@@ -840,7 +668,7 @@ app.post("/api/results/config", (req, res) => {
     if (cacheTtlMinutes !== undefined) resultsApiConfig.cacheTtlMinutes = Math.max(5, Number(cacheTtlMinutes));
 
     saveResultsConfig();
-    return res.json({ success: true, config: resultsApiConfig });
+    return res.json({ success: true, config: { ...resultsApiConfig, apiKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY) } });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -848,6 +676,11 @@ app.post("/api/results/config", (req, res) => {
 
 // Webhook / Direct endpoint to push match final scores from custom API
 app.post("/api/results/push-scores", (req, res) => {
+  const configuredSecret = process.env.RESULTS_WEBHOOK_SECRET;
+  const providedSecret = req.header("x-results-webhook-secret");
+  if (!configuredSecret || !providedSecret || providedSecret !== configuredSecret) {
+    return res.status(401).json({ error: "Authorized results webhook secret required." });
+  }
   try {
     const { scores } = req.body; // Array of { homeTeam, awayTeam, date, homeGoals, awayGoals, status }
     if (!scores || !Array.isArray(scores)) {
@@ -1011,62 +844,32 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
     }
   }
 
-  // 2. Fallback: Query Google Search Grounding via Gemini for unsettled matches
+  // 2. Verify remaining past fixtures against trusted score providers only.
   const stillUnsettled = updatedManifest.filter((m: any) => !m.resultSettled || m.status !== "FT");
-  if (stillUnsettled.length > 0 && checkAndIncrementQuota()) {
-    try {
-      const client = getGeminiClient();
-      const sampleMatches = stillUnsettled.slice(0, 10);
-      const queryList = sampleMatches.map(m => `"${m.homeTeam}" vs "${m.awayTeam}" on ${m.date}`).join(", ");
-
-      const systemPrompt = `You are a real-time sports results verification agent. Search Google to find official full-time match scores for these football fixtures: ${queryList}.
-Only return matches that have finished (Full Time / FT). Output a JSON array matching responseSchema.`;
-
-      const response = await client.models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: `Find official FT scores for: ${queryList}`,
-        config: {
-          systemInstruction: systemPrompt,
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                homeTeam: { type: Type.STRING },
-                awayTeam: { type: Type.STRING },
-                date: { type: Type.STRING },
-                homeGoals: { type: Type.INTEGER },
-                awayGoals: { type: Type.INTEGER },
-                status: { type: Type.STRING, description: "FT, LIVE, or NS" }
-              },
-              required: ["homeTeam", "awayTeam", "date", "homeGoals", "awayGoals", "status"]
-            }
-          }
-        }
-      });
-
-      const parsedScores = JSON.parse(response.text || "[]");
-      for (const scoreItem of parsedScores) {
-        if (scoreItem.status === "FT" || scoreItem.status === "FINISHED") {
-          const key = getCompositeKeyServer(scoreItem.homeTeam, scoreItem.awayTeam, scoreItem.date);
-          const idx = updatedManifest.findIndex(m => getCompositeKeyServer(m.homeTeam, m.awayTeam, m.date) === key);
-          if (idx !== -1 && !updatedManifest[idx].resultSettled) {
-            updatedManifest[idx] = {
-              ...updatedManifest[idx],
-              status: "FT",
-              finalScore: { home: Number(scoreItem.homeGoals), away: Number(scoreItem.awayGoals) },
-              resultSettled: true,
-              settledAt: new Date().toISOString(),
-              resultSource: "gemini-search-grounding"
-            };
-            totalSettled++;
-          }
-        }
+  const datesToVerify = [...new Set(stillUnsettled.filter(m => m.date <= new Date().toISOString().split("T")[0]).map(m => m.date))];
+  for (const date of datesToVerify) {
+    const providerResults = [
+      ...(await fetchSportApiAiFixtures(date)),
+      ...(await fetchTheRundownFixtures(date))
+    ];
+    for (let i = 0; i < updatedManifest.length; i++) {
+      const match = updatedManifest[i];
+      if (match.resultSettled && match.status === "FT") continue;
+      const found = providerResults.find((r: any) =>
+        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
+        (r.resultSettled === true || r.status === "FT")
+      );
+      if (found && found.homeGoals !== undefined && found.awayGoals !== undefined) {
+        updatedManifest[i] = {
+          ...match,
+          status: "FT",
+          finalScore: { home: Number(found.homeGoals), away: Number(found.awayGoals) },
+          resultSettled: true,
+          settledAt: new Date().toISOString(),
+          resultSource: found.source || "trusted-provider"
+        };
+        totalSettled++;
       }
-    } catch (groundingErr: any) {
-      console.warn("Results search grounding scan note:", groundingErr.message);
     }
   }
 
@@ -1118,24 +921,26 @@ function recordSettledMatchHistoryServer(manifest: any[]) {
           actualOutcome,
           predictedScore: pred ? `${pred.predicted_home_score}-${pred.predicted_away_score}` : "N/A",
           actualScore: `${match.finalScore.home}-${match.finalScore.away}`,
-          isCorrect: pred ? isCorrect : false,
+          isCorrect: pred ? isCorrect : null,
           source: match.resultSource || match.source || "api-football",
           verifiedAt: match.settledAt || new Date().toISOString()
         };
         resultsList.push(resItem);
         modified = true;
 
-        // Connect verification back to live model: call applyCalibrationServer
-        applyCalibrationServer(
-          match.homeTeam,
-          match.awayTeam,
-          match.finalScore.home,
-          match.finalScore.away,
-          pred ? pred.predicted_home_score : 1.35,
-          pred ? pred.predicted_away_score : 1.05,
-          match.wasDerby || false,
-          String(match.id || matchKey)
-        );
+        if (pred && pred.predicted_home_xg !== undefined && pred.predicted_away_xg !== undefined) {
+          applyCalibrationServer(
+            match.homeTeam,
+            match.awayTeam,
+            match.finalScore.home,
+            match.finalScore.away,
+            pred.predicted_home_xg,
+            pred.predicted_away_xg,
+            match.wasDerby || false,
+            String(match.id || matchKey),
+            match.resultSource || "trusted-provider"
+          );
+        }
       }
     }
   }
@@ -1172,6 +977,33 @@ app.get("/api/coefficients/history", (req, res) => {
 app.get("/api/matrices", (req, res) => {
   return res.json({ matrices: getMatrices() });
 });
+app.post("/api/matrices", (req, res) => {
+  try {
+    const incoming = req.body?.matrices;
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+      return res.status(400).json({ error: "matrices object is required" });
+    }
+    const current = getMatrices();
+    const next: Record<string, any> = { ...current };
+    for (const [team, value] of Object.entries(incoming as Record<string, any>)) {
+      if (!current[team] || !value?.learned_coefficients) continue;
+      const c = value.learned_coefficients;
+      const nums = [c.home_advantage_multiplier, c.form_momentum_weight, c.volatility_index, c.fatigue_penalty_modifier];
+      if (nums.some((n: any) => typeof n !== "number" || !Number.isFinite(n)) || nums.some((n: number) => n < 0.5 || n > 1.5)) continue;
+      next[team] = { ...current[team], learned_coefficients: {
+        home_advantage_multiplier: c.home_advantage_multiplier,
+        form_momentum_weight: c.form_momentum_weight,
+        volatility_index: c.volatility_index,
+        fatigue_penalty_modifier: c.fatigue_penalty_modifier
+      }};
+    }
+    saveMatrices(next);
+    return res.json({ success: true, matrices: next });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to save matrices" });
+  }
+});
+
 
 // Endpoint to trigger automated results scan on demand
 app.post("/api/results/scan", async (req, res) => {
@@ -1236,61 +1068,43 @@ app.get("/api/real-fixtures", async (req, res) => {
   try {
     const manifest = loadPersistedFixturesFromDisk();
     const diskMatches = manifest.filter((f: any) => f.date === targetDate);
-
     const cachedEntry = dailyFixtureCache[targetDate];
-    const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-    if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION)) {
+    const today = getTodayDateStrServer();
+    const cacheDuration = targetDate <= today ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
+
+    if (cachedEntry && Date.now() - cachedEntry.timestamp < cacheDuration) {
       const merged = mergeServerSlates(diskMatches, cachedEntry.fixtures);
-      return res.json({ fixtures: merged, source: "cache" });
+      return res.json({ fixtures: merged, source: "cache", stale: false, fetchedAt: new Date(cachedEntry.timestamp).toISOString() });
     }
 
-    if (diskMatches.length > 0) {
-      dailyFixtureCache[targetDate] = { fixtures: diskMatches, timestamp: Date.now() };
-      return res.json({ fixtures: diskMatches, source: "disk-manifest" });
-    }
-
-    // 1. SportAPI.ai (Primary Provider)
+    const providerResults: any[] = [];
+    const sources: string[] = [];
     const sportApiFixtures = await fetchSportApiAiFixtures(targetDate);
-    if (sportApiFixtures && sportApiFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, sportApiFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "sportapi-ai" });
-    }
-
-    // 2. TheRundown (Secondary Provider)
+    if (sportApiFixtures.length) { providerResults.push(...sportApiFixtures); sources.push("sportapi-ai"); }
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
-    if (rundownFixtures && rundownFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, rundownFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "therundown" });
+    if (rundownFixtures.length) { providerResults.push(...rundownFixtures); sources.push("therundown"); }
+
+    let merged = mergeServerSlates(diskMatches, providerResults);
+    let source = sources.length ? sources.join("+") : "disk-manifest";
+
+    if (merged.length === 0) {
+      const espnFixtures = (await fetchEspnFixtures(targetDate)).map((f: any) => ({
+        ...f, source: "espn", sourceConfidence: "unknown", ingestedAt: new Date().toISOString()
+      }));
+      merged = mergeServerSlates(diskMatches, espnFixtures);
+      source = espnFixtures.length ? "espn-discovery" : "none";
     }
 
-    // 3. Static fallback
-    if (STATIC_REAL_WORLD_FIXTURES[targetDate]) {
-      const merged = mergeServerSlates(diskMatches, STATIC_REAL_WORLD_FIXTURES[targetDate]);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "static" });
+    if (providerResults.length) {
+      saveFixturesToDisk(mergeServerSlates(manifest, providerResults));
+      generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
     }
 
-    // 4. ESPN fallback scraper
-    const espnFixtures = await fetchEspnFixtures(targetDate);
-    if (espnFixtures && espnFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, espnFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "espn-scraper" });
-    }
-
-    const backupFixtures = generateFailsafeFixtures(targetDate);
-    const merged = mergeServerSlates(diskMatches, backupFixtures);
-    generatePreMatchPredictions(merged);
-    return res.json({ fixtures: merged, source: "error-fallback" });
+    dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
+    return res.json({ fixtures: merged, source, stale: providerResults.length === 0, fetchedAt: new Date().toISOString() });
   } catch (err: any) {
-    const backupFixtures = generateFailsafeFixtures(targetDate);
-    return res.json({ fixtures: backupFixtures, source: "error-fallback" });
+    const backup = loadPersistedFixturesFromDisk().filter((f: any) => f.date === targetDate);
+    return res.json({ fixtures: backup, source: "disk-fallback", stale: true, error: "Fresh fixture providers were unavailable; disk data may be stale." });
   }
 });
 
@@ -1316,20 +1130,19 @@ async function runScheduledIngestAndSettlement() {
     lastIngestDateStr = todayStr;
     console.log(`[CRON] Running daily automated fixture ingestion for ${todayStr}...`);
     try {
-      let fixtures = await fetchSportApiAiFixtures(todayStr);
-      let sourceUsed = "sportapi-ai";
-      if (!fixtures || fixtures.length === 0) {
-        fixtures = await fetchTheRundownFixtures(todayStr);
-        sourceUsed = "therundown";
-      }
-      if (fixtures && fixtures.length > 0) {
+      const primary = await fetchSportApiAiFixtures(todayStr);
+      const secondary = await fetchTheRundownFixtures(todayStr);
+      const fixtures = [...primary, ...secondary];
+      const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+      if (fixtures.length > 0) {
         const manifest = loadPersistedFixturesFromDisk();
         const merged = mergeServerSlates(manifest, fixtures);
         saveFixturesToDisk(merged);
+        generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
         cronStatusInfo.lastIngestTime = new Date().toISOString();
-        cronStatusInfo.lastIngestStatus = `Success: Ingested ${fixtures.length} fixtures from ${sourceUsed}`;
+        cronStatusInfo.lastIngestStatus = `Success: reconciled ${fixtures.length} fixtures from ${sourceUsed}`;
       } else {
-        cronStatusInfo.lastIngestStatus = "No fixtures returned from primary or secondary provider";
+        cronStatusInfo.lastIngestStatus = "No fixtures returned from trusted providers";
       }
     } catch (err: any) {
       console.error("[CRON] Daily ingestion error:", err.message);
@@ -1364,18 +1177,17 @@ app.get("/api/admin/cron-status", (req, res) => {
 app.post("/api/admin/run-ingest-now", async (req, res) => {
   try {
     const targetDate = req.body.date || getTodayDateStrServer();
-    let fixtures = await fetchSportApiAiFixtures(targetDate);
-    let sourceUsed = "sportapi-ai";
-    if (!fixtures || fixtures.length === 0) {
-      fixtures = await fetchTheRundownFixtures(targetDate);
-      sourceUsed = "therundown";
-    }
+    const primary = await fetchSportApiAiFixtures(targetDate);
+    const secondary = await fetchTheRundownFixtures(targetDate);
+    const fixtures = [...primary, ...secondary];
+    const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
     const manifest = loadPersistedFixturesFromDisk();
-    const merged = mergeServerSlates(manifest, fixtures || []);
+    const merged = mergeServerSlates(manifest, fixtures);
     saveFixturesToDisk(merged);
+    generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
 
     cronStatusInfo.lastIngestTime = new Date().toISOString();
-    cronStatusInfo.lastIngestStatus = `Manual ingest success: ${(fixtures || []).length} fixtures from ${sourceUsed}`;
+    cronStatusInfo.lastIngestStatus = `Manual ingest success: reconciled ${fixtures.length} fixtures from ${sourceUsed}`;
 
     return res.json({
       success: true,
@@ -1389,17 +1201,7 @@ app.post("/api/admin/run-ingest-now", async (req, res) => {
 });
 
 // Failsafe recommendation generator when AI quota is exhausted
-function generateFailsafeSelfImprovement(): any {
-  return {
-    recommended_coefficients: {
-      home_advantage_multiplier: 1.15,
-      form_momentum_weight: 0.98,
-      volatility_index: 0.85,
-      fatigue_penalty_modifier: 0.89
-    },
-    meta_improvement_notes: "Advancements in 2026 football analytics confirm that compact defensive low-blocks reduce general shot conversion rates by 12.5%, requiring a subtle increase in home advantage weights to reflect localized fan pressure. Furthermore, analysis of fast-paced leagues (e.g., Sweden Division 1, Chinese Super League) justifies a lower Volatility Index to dampen high scoring deviation, and physical decay modeling supports a slightly heavier fatigue penalty modifier of 0.89 for teams playing matches with less than a 4-day recovery cycle."
-  };
-}
+// No synthetic self-improvement coefficients are generated on API failure.
 
 // 2. API: Research self-improvement sports modeling breakthroughs
 app.post("/api/self-improvement", async (req, res) => {
@@ -1423,7 +1225,7 @@ You will output a JSON object proposing recommended adjustment values for our gl
 Also output detailed "meta_improvement_notes" explaining the tactical or academic justification for these modifications based on the researched parameters.`;
 
     const response = await client.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       contents: "Research the latest predictive football models for 2026. Propose fine-tuned weights and generate structured improvement logs.",
       config: {
         systemInstruction: systemPrompt,
@@ -1454,9 +1256,8 @@ Also output detailed "meta_improvement_notes" explaining the tactical or academi
     const recommendation = JSON.parse(response.text || "{}");
     return res.json(recommendation);
   } catch (err: any) {
-    // Return high-fidelity analytical fallback parameters when API limits are reached
-    const failsafeRecommendation = generateFailsafeSelfImprovement();
-    return res.json(failsafeRecommendation);
+    console.error("Self-improvement research unavailable:", err.message);
+    return res.status(503).json({ error: "Research service unavailable. No synthetic coefficients were generated.", coefficients: null });
   }
 });
 

@@ -79,7 +79,7 @@ export default function App() {
 
   const [metaNotes, setMetaNotes] = useState<string>(() => {
     return localStorage.getItem("football_engine_meta_notes") || 
-      "Initial Calibration: Configured baseline pitch-fact parameters and geographic volatility dampeners for fast-paced transition leagues (Japan, Norway, Sweden, South Korea, China). Zero statistical bias verified.";
+      "Baseline coefficients are priors only. Verified match results are required before a team matrix is considered learned.";
   });
 
   const [activeTab, setActiveTab] = useState<"ingest" | "matrix" | "predictor" | "advancement" | "sync" | "fixtures" | "trends" | "bookmaker" | "results-api" | "verified-results">("fixtures");
@@ -130,7 +130,7 @@ export default function App() {
 
   // Automated Results Scanner & Custom API States (Quota Protection)
   const [customResultsApiUrl, setCustomResultsApiUrl] = useState<string>("");
-  const [customResultsApiKey, setCustomResultsApiKey] = useState<string>("");
+  const [resultsApiKeyConfigured, setResultsApiKeyConfigured] = useState<boolean>(false);
   const [autoResultsScan, setAutoResultsScan] = useState<boolean>(true);
   const [maxCallsPerDay, setMaxCallsPerDay] = useState<number>(10);
   const [todayCallsCount, setTodayCallsCount] = useState<number>(0);
@@ -160,13 +160,13 @@ export default function App() {
   const [predHomeTeam, setPredHomeTeam] = useState<string>("Napoli");
   const [predAwayTeam, setPredAwayTeam] = useState<string>("Club Brugge");
   const [predWasDerby, setPredWasDerby] = useState<boolean>(false);
-  const [predHomeRank, setPredHomeRank] = useState<number>(1);
-  const [predAwayRank, setPredAwayRank] = useState<number>(1);
-  const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number>(7);
-  const [predAwayContinentalGap, setPredAwayContinentalGap] = useState<number>(7);
-  const [predOpponentLowBlock, setPredOpponentLowBlock] = useState<boolean>(false);
-  const [predHighShotAccuracy, setPredHighShotAccuracy] = useState<boolean>(true);
-  const [predPossession, setPredPossession] = useState<number>(55);
+  const [predHomeRank, setPredHomeRank] = useState<number | undefined>(undefined);
+  const [predAwayRank, setPredAwayRank] = useState<number | undefined>(undefined);
+  const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number | undefined>(undefined);
+  const [predAwayContinentalGap, setPredAwayContinentalGap] = useState<number | undefined>(undefined);
+  const [predOpponentLowBlock, setPredOpponentLowBlock] = useState<boolean | undefined>(undefined);
+  const [predHighShotAccuracy, setPredHighShotAccuracy] = useState<boolean | undefined>(undefined);
+  const [predPossession, setPredPossession] = useState<number | undefined>(undefined);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 
   // Advancement States
@@ -196,76 +196,30 @@ export default function App() {
   const syncPayload: SyncPayload = useMemo(() => {
     return {
       sync_timestamp: new Date().toISOString(),
-      model_engine: "gemini-3.8-flash",
+      model_engine: "rule-engine-v1",
       meta_improvement_notes: metaNotes,
       team_intelligence_matrices: teamMatrices
     };
   }, [teamMatrices, metaNotes]);
 
-  // --- 3.1 Historical Coefficients Rolling Average Trend Generation ---
+  // --- 3.1 Historical Coefficients: real verified calibration events only ---
   const trendData = useMemo(() => {
-    const teamLogs = coeffHistoryLogs.filter(h => h.team.toLowerCase() === trendTeam.toLowerCase());
-    if (teamLogs.length > 0) {
-      return teamLogs.map((h, idx) => ({
-        name: `Match ${idx + 1} (${new Date(h.timestamp).toLocaleDateString()})`,
-        "Home Adv (5-M Avg)": h.home_advantage_multiplier,
-        "Form Momentum (5-M Avg)": h.form_momentum_weight,
-        "Volatility (5-M Avg)": h.volatility_index,
-        "Fatigue Penalty (5-M Avg)": h.fatigue_penalty_modifier
-      }));
-    }
+    const teamLogs = coeffHistoryLogs
+      .filter(h => h.team.toLowerCase() === trendTeam.toLowerCase())
+      .sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const defaultMatrix = {
-      sample_size_matches: 0,
-      learned_coefficients: {
-        home_advantage_multiplier: 1.12,
-        form_momentum_weight: 1.15,
-        volatility_index: 1.00,
-        fatigue_penalty_modifier: 0.95
-      }
-    };
-    const currentMatrix = teamMatrices[trendTeam] || defaultMatrix;
-    const baseCoeffs = currentMatrix.learned_coefficients;
-    
-    // Create a deterministic seed based on the team name to guarantee stable, reproducible paths
-    const teamSeed = trendTeam.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    
-    // Generate 15 matches of historical coefficient timeline
-    const rawHistory = Array.from({ length: 15 }).map((_, idx) => {
-      // Deterministic periodic variations representing game-by-game adjustments
-      const factorH = Math.sin((teamSeed + idx * 3.7) * 0.45) * 0.08;
-      const factorM = Math.cos((teamSeed - idx * 2.9) * 0.5) * 0.07;
-      const factorV = Math.sin((teamSeed * 1.3 + idx * 4.1) * 0.35) * 0.10;
-      const factorF = Math.cos((teamSeed * 0.75 - idx * 1.8) * 0.4) * 0.05;
-      
+    return teamLogs.map((_, idx) => {
+      const windowPoints = teamLogs.slice(Math.max(0, idx - 4), idx + 1);
+      const avg = (key: string) => windowPoints.reduce((sum, p) => sum + Number(p[key] || 0), 0) / windowPoints.length;
       return {
-        home_advantage_multiplier: Math.max(1.0, +(baseCoeffs.home_advantage_multiplier + factorH).toFixed(3)),
-        form_momentum_weight: Math.max(1.0, +(baseCoeffs.form_momentum_weight + factorM).toFixed(3)),
-        volatility_index: Math.max(0.5, +(baseCoeffs.volatility_index + factorV).toFixed(3)),
-        fatigue_penalty_modifier: Math.max(0.7, +(baseCoeffs.fatigue_penalty_modifier + factorF).toFixed(3))
+        name: `Calibration ${idx + 1}`,
+        "Home Adv (5-event Avg)": +avg("home_advantage_multiplier").toFixed(3),
+        "Form Momentum (5-event Avg)": +avg("form_momentum_weight").toFixed(3),
+        "Volatility (5-event Avg)": +avg("volatility_index").toFixed(3),
+        "Fatigue Penalty (5-event Avg)": +avg("fatigue_penalty_modifier").toFixed(3)
       };
     });
-    
-    // Map raw points to their corresponding 5-match rolling averages
-    return rawHistory.map((_, idx) => {
-      const startIndex = Math.max(0, idx - 4);
-      const windowPoints = rawHistory.slice(startIndex, idx + 1);
-      const count = windowPoints.length;
-      
-      const avgH = windowPoints.reduce((sum, p) => sum + p.home_advantage_multiplier, 0) / count;
-      const avgM = windowPoints.reduce((sum, p) => sum + p.form_momentum_weight, 0) / count;
-      const avgV = windowPoints.reduce((sum, p) => sum + p.volatility_index, 0) / count;
-      const avgF = windowPoints.reduce((sum, p) => sum + p.fatigue_penalty_modifier, 0) / count;
-      
-      return {
-        name: `Match ${idx + 1}`,
-        "Home Adv (5-M Avg)": +avgH.toFixed(3),
-        "Form Momentum (5-M Avg)": +avgM.toFixed(3),
-        "Volatility (5-M Avg)": +avgV.toFixed(3),
-        "Fatigue Penalty (5-M Avg)": +avgF.toFixed(3)
-      };
-    });
-  }, [trendTeam, teamMatrices]);
+  }, [trendTeam, coeffHistoryLogs]);
 
   // --- 4. Event Handlers ---
   
@@ -385,12 +339,12 @@ export default function App() {
     });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingTeam || !editForm) return;
-    setTeamMatrices(prev => ({
-      ...prev,
+    const updated = {
+      ...teamMatrices,
       [editingTeam]: {
-        sample_size_matches: Number(editForm.sampleSize),
+        ...teamMatrices[editingTeam],
         learned_coefficients: {
           home_advantage_multiplier: Number(editForm.home_advantage_multiplier),
           form_momentum_weight: Number(editForm.form_momentum_weight),
@@ -398,7 +352,18 @@ export default function App() {
           fatigue_penalty_modifier: Number(editForm.fatigue_penalty_modifier)
         }
       }
-    }));
+    };
+    setTeamMatrices(updated);
+    try {
+      const res = await fetch("/api/matrices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matrices: updated })
+      });
+      if (!res.ok) throw new Error("Server rejected matrix update");
+    } catch (err) {
+      console.warn("Matrix server persistence failed:", err);
+    }
     setEditingTeam(null);
     setEditForm(null);
   };
@@ -473,7 +438,7 @@ export default function App() {
 
       setResearchConsole(prev => [
         ...prev,
-        "Success! Discovered model break-through parameters.",
+        "Research recommendation returned; live coefficients were not changed.",
         `Recommended parameters calibrated with shot accuracy gaps against compact low blocks.`
       ]);
 
@@ -487,28 +452,7 @@ export default function App() {
 
   const applyProposedResearch = () => {
     if (!proposedUpdates) return;
-    const recommended = proposedUpdates.recommended_coefficients;
-    const notes = proposedUpdates.meta_improvement_notes;
-
-    // Apply to all 80 teams
-    const updated = { ...teamMatrices };
-    Object.keys(updated).forEach(team => {
-      const isFast = isFastPacedLeagueTeam(team);
-      updated[team] = {
-        ...updated[team],
-        learned_coefficients: {
-          home_advantage_multiplier: recommended.home_advantage_multiplier,
-          form_momentum_weight: recommended.form_momentum_weight,
-          volatility_index: isFast ? recommended.volatility_index : 1.00,
-          fatigue_penalty_modifier: recommended.fatigue_penalty_modifier
-        }
-      };
-    });
-
-    setTeamMatrices(updated);
-    setMetaNotes(prev => `[Advancement Upgrade Applied] ${notes}\n\n` + prev);
-    setProposedUpdates(null);
-    alert("Global target team coefficients successfully re-calibrated with sports modeling breakthroughs!");
+    alert("Research recommendations are advisory only. They were not applied to the live model because they have not passed out-of-sample evaluation.");
   };
 
   // Copy JSON Payload to clipboard
@@ -525,10 +469,24 @@ export default function App() {
   };
 
   // Reset all matrices to standard values
-  const handleResetToDefaults = () => {
-    if (confirm("Are you sure you want to reset all team matrices to standard baseline values?")) {
-      setTeamMatrices(generateDefaultMatrices());
-      setMetaNotes("System Default Baseline Restored. Volatility geographic dampening configured.");
+  const handleResetToDefaults = async () => {
+    if (confirm("Are you sure you want to reset all team coefficients to neutral priors? Verified sample sizes will be preserved.")) {
+      const defaults = generateDefaultMatrices();
+      const preserved = Object.fromEntries(Object.entries(defaults).map(([team, value]) => [
+        team,
+        { ...value, sample_size_matches: teamMatrices[team]?.sample_size_matches ?? 0 }
+      ]));
+      setTeamMatrices(preserved);
+      setMetaNotes("Neutral priors restored. Verified sample sizes were preserved.");
+      try {
+        await fetch("/api/matrices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matrices: preserved })
+        });
+      } catch (err) {
+        console.warn("Failed to persist matrix reset:", err);
+      }
     }
   };
 
@@ -691,7 +649,7 @@ export default function App() {
       .then(res => res.json())
       .then(data => {
         if (data.apiUrl !== undefined) setCustomResultsApiUrl(data.apiUrl);
-        if (data.apiKey !== undefined) setCustomResultsApiKey(data.apiKey);
+        if (data.apiKeyConfigured !== undefined) setResultsApiKeyConfigured(Boolean(data.apiKeyConfigured));
         if (data.autoScanEnabled !== undefined) setAutoResultsScan(data.autoScanEnabled);
         if (data.maxCallsPerDay !== undefined) setMaxCallsPerDay(data.maxCallsPerDay);
         if (data.todayCallsCount !== undefined) setTodayCallsCount(data.todayCallsCount);
@@ -710,7 +668,6 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiUrl: customResultsApiUrl,
-          apiKey: customResultsApiKey,
           autoScanEnabled: autoResultsScan,
           maxCallsPerDay,
           scanIntervalHours,
@@ -834,7 +791,7 @@ export default function App() {
         const queryDate = selectedFixtureDate === "all" ? todayStr : selectedFixtureDate;
         const response = await fetch(`/api/real-fixtures?date=${queryDate}`);
         if (!response.ok) {
-          throw new Error("Failed to reach server-side Google Grounding service");
+          throw new Error("Failed to reach trusted fixture provider service");
         }
         const data = await response.json();
         if (data.error) {
@@ -894,7 +851,7 @@ export default function App() {
   const handleLoadFixtureIntoPredictor = (fixture: Fixture) => {
     setPredHomeTeam(fixture.homeTeam);
     setPredAwayTeam(fixture.awayTeam);
-    setPredWasDerby(fixture.wasDerby);
+    setPredWasDerby(fixture.wasDerby ?? false);
     setPredHomeRank(fixture.homeRank);
     setPredAwayRank(fixture.awayRank);
     setPredHomeContinentalGap(fixture.homeContinentalGap);
@@ -921,7 +878,7 @@ export default function App() {
                   Locked 80
                 </span>
               </h1>
-              <p className="text-xs text-[#64748B]">Highly Specialised Bias-Free Pitch & Positional Matrix Engine</p>
+              <p className="text-xs text-[#64748B]">Highly Specialised Evidence-Gated Pitch & Positional Matrix Engine</p>
             </div>
           </div>
 
@@ -1055,7 +1012,7 @@ export default function App() {
             }`}
           >
             <Dribbble className="w-4.5 h-4.5" />
-            Bias-Free Match Simulator
+            Evidence-Gated Match Simulator
           </button>
 
           <button 
@@ -1152,7 +1109,7 @@ export default function App() {
                     Upcoming Fixtures & Calendar Matches
                   </h2>
                   <p className="text-sm text-[#64748B] mt-1">
-                    Monitor scheduled matches for the locked profile of 80 teams. Access today's active matches, filter by calendar dates, or instantly load parameters into the bias-free simulation engine.
+                    Monitor scheduled matches for the locked profile of 80 teams. Access today's active matches, filter by calendar dates, or instantly load parameters into the evidence-gated simulation engine.
                   </p>
 
                   {/* SportAPI.ai & TheRundown Pipeline Status Widget */}
@@ -1186,7 +1143,7 @@ export default function App() {
                     </button>
                   </div>
                   
-                  {/* Google Search Grounding & Results Scanner Status Indicators */}
+                  {/* Trusted Results Verification & Scanner Status */}
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] bg-[#E8F5E9] text-[#15803D] border border-[#C8E6C9] font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-2xs">
@@ -1244,12 +1201,12 @@ export default function App() {
                             onChange={(e) => setAutoResultsScan(e.target.checked)}
                             className="rounded border-slate-300 text-[#15803D] focus:ring-[#15803D]"
                           />
-                          <span>Enable Auto-Scan every 15 mins</span>
+                          <span>Enable Auto-Scan on the configured interval</span>
                         </label>
                       </div>
 
                       <p className="text-slate-600 text-[11px]">
-                        Connect your custom results API URL (e.g. <code className="bg-slate-200 px-1 py-0.5 rounded">https://your-api.com/v1/scores</code>) or push match scores directly to <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">POST /api/results/push-scores</code>. The background worker queries your API or live search every 15 minutes to automatically verify full-time match scores.
+                        Connect a custom results API URL or use the server-authorized score webhook. The background worker verifies full-time scores using configured providers; it does not accept AI-generated scores.
                       </p>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -1263,15 +1220,8 @@ export default function App() {
                             className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
                           />
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">API Authorization Key (Optional)</label>
-                          <input
-                            type="password"
-                            placeholder="Bearer or x-api-key"
-                            value={customResultsApiKey}
-                            onChange={(e) => setCustomResultsApiKey(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#15803D]"
-                          />
+                        <div className="flex items-center text-[10px] text-slate-500">
+                          Server API key configured: <strong className="ml-1">{resultsApiKeyConfigured ? "Yes" : "No"}</strong>
                         </div>
                       </div>
 
@@ -1545,7 +1495,7 @@ export default function App() {
 
                             <div className="border-t border-[#F1F5F9] pt-2.5 flex items-center justify-between">
                               <span className="text-[10px] text-[#64748B] flex items-center gap-1">
-                                {match.wasDerby ? "🔥 Local Derby" : `Rank Gap: ${Math.abs(match.homeRank - match.awayRank)} slots`}
+                                {match.wasDerby ? "🔥 Local Derby" : (match.homeRank && match.awayRank ? `Rank Gap: ${Math.abs(match.homeRank - match.awayRank)} slots` : "Rank gap unavailable")}
                               </span>
                               <button
                                 onClick={() => handleLoadFixtureIntoPredictor(match)}
@@ -1586,23 +1536,23 @@ export default function App() {
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
                     <span className="text-xs text-[#64748B] uppercase font-bold">Total Verified Matches</span>
                     <span className="text-2xl font-extrabold text-[#0F172A]">{verifiedResults.length}</span>
-                    <span className="text-[10px] text-emerald-600 font-medium">Synced from Server & API-Football</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Synced from configured verified result sources</span>
                   </div>
 
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
-                    <span className="text-xs text-[#64748B] uppercase font-bold">Correct Predictions</span>
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Correct Graded Predictions</span>
                     <span className="text-2xl font-extrabold text-emerald-600">
-                      {verifiedResults.filter(r => r.isCorrect).length}
+                      {verifiedResults.filter(r => r.hasPriorPrediction && r.isCorrect).length}
                     </span>
                     <span className="text-[10px] text-[#64748B]">Accurate outcome forecasts</span>
                   </div>
 
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
-                    <span className="text-xs text-[#64748B] uppercase font-bold">Hit Rate Accuracy</span>
+                    <span className="text-xs text-[#64748B] uppercase font-bold">Out-of-Sample Accuracy</span>
                     <span className="text-2xl font-extrabold text-[#0F172A]">
-                      {verifiedResults.length > 0 ? Math.round((verifiedResults.filter(r => r.isCorrect).length / verifiedResults.length) * 100) : 0}%
+                      {(() => { const graded = verifiedResults.filter(r => r.hasPriorPrediction); return graded.length > 0 ? Math.round((graded.filter(r => r.isCorrect).length / graded.length) * 100) : null; })() === null ? "Unavailable" : `${(() => { const graded = verifiedResults.filter(r => r.hasPriorPrediction); return Math.round((graded.filter(r => r.isCorrect).length / graded.length) * 100); })()}%`}
                     </span>
-                    <span className="text-[10px] text-[#64748B]">Model track record</span>
+                    <span className="text-[10px] text-[#64748B]">Only graded pre-match predictions are included</span>
                   </div>
                 </div>
 
@@ -1734,7 +1684,7 @@ export default function App() {
                       className="text-xs p-3 rounded-lg border text-left transition bg-[#F8FAFC] border-[#E2E8F0] text-[#334155] hover:bg-[#F1F5F9] cursor-pointer"
                     >
                       <span className="block font-bold mb-1">Today's Verified Daily Slate</span>
-                      <span className="text-[10px] text-[#64748B] line-clamp-1">3 authentic verified matches for our locked target clubs</span>
+                      <span className="text-[10px] text-[#64748B] line-clamp-1">Verified fixtures from configured sources are shown here when available.</span>
                     </button>
 
                     <button
@@ -2076,20 +2026,8 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        API Authorization Key / Token (Optional)
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Bearer token or x-api-key"
-                        value={customResultsApiKey}
-                        onChange={(e) => setCustomResultsApiKey(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-sky-600"
-                      />
-                      <span className="text-[10px] text-slate-500 mt-1 block">
-                        Passed in header as Authorization Bearer & x-api-key.
-                      </span>
+                    <div className="flex items-center text-xs text-slate-600">
+                      <span>Server API key configured: <strong className="ml-1">{resultsApiKeyConfigured ? "Yes" : "No"}</strong></span>
                     </div>
                   </div>
 
@@ -2542,7 +2480,7 @@ export default function App() {
             {activeTab === "predictor" && (
               <div className="flex flex-col gap-6">
                 <div>
-                  <h2 className="text-lg font-bold text-[#0F172A]">Bias-Free Head-To-Head Simulator</h2>
+                  <h2 className="text-lg font-bold text-[#0F172A]">Evidence-Gated Head-To-Head Simulator</h2>
                   <p className="text-sm text-[#64748B]">Select Home and Away teams from the locked favorite profile list and configure match context to test the predictive weight engine outputs.</p>
                 </div>
 
@@ -2608,7 +2546,7 @@ export default function App() {
                       <span className="text-xs font-semibold text-[#334155]">Opponent Compact Low-Block:</span>
                       <input
                         type="checkbox"
-                        checked={predOpponentLowBlock}
+                        checked={!!predOpponentLowBlock}
                         onChange={(e) => setPredOpponentLowBlock(e.target.checked)}
                         className="w-4 h-4 text-[#15803D] focus:ring-[#15803D] rounded cursor-pointer"
                       />
@@ -2620,7 +2558,7 @@ export default function App() {
                       <input
                         type="checkbox"
                         disabled={!predOpponentLowBlock}
-                        checked={predHighShotAccuracy}
+                        checked={!!predHighShotAccuracy}
                         onChange={(e) => setPredHighShotAccuracy(e.target.checked)}
                         className="w-4 h-4 text-[#15803D] focus:ring-[#15803D] disabled:opacity-50 rounded cursor-pointer"
                       />
@@ -2630,7 +2568,7 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
                     {/* Standing ranks */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Home Standing Rank: {predHomeRank}</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Home Standing Rank: {predHomeRank ?? "Unknown"}</label>
                       <input
                         type="range"
                         min="1"
@@ -2642,7 +2580,7 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Away Standing Rank: {predAwayRank}</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Away Standing Rank: {predAwayRank ?? "Unknown"}</label>
                       <input
                         type="range"
                         min="1"
@@ -2655,7 +2593,7 @@ export default function App() {
 
                     {/* Possession percentage slider */}
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-bold text-[#475569]">Expected Possession Ratio: {predPossession}% - {100 - predPossession}%</label>
+                      <label className="text-[11px] font-bold text-[#475569]">Expected Possession Ratio: {predPossession === undefined ? "Unknown" : `${predPossession}% - ${100 - predPossession}%`}</label>
                       <input
                         type="range"
                         min="25"
@@ -2677,11 +2615,11 @@ export default function App() {
                           min="1"
                           max="14"
                           value={predHomeContinentalGap}
-                          onChange={(e) => setPredHomeContinentalGap(Number(e.target.value))}
+                          onChange={(e) => setPredHomeContinentalGap(e.target.value ? Number(e.target.value) : undefined)}
                           className="text-xs p-1.5 border border-[#E2E8F0] rounded w-16"
                         />
                         <span className="text-[10px] text-[#64748B]">
-                          {predHomeContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
+                          {predHomeContinentalGap === undefined ? "Unknown" : predHomeContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
                         </span>
                       </div>
                     </div>
@@ -2694,11 +2632,11 @@ export default function App() {
                           min="1"
                           max="14"
                           value={predAwayContinentalGap}
-                          onChange={(e) => setPredAwayContinentalGap(Number(e.target.value))}
+                          onChange={(e) => setPredAwayContinentalGap(e.target.value ? Number(e.target.value) : undefined)}
                           className="text-xs p-1.5 border border-[#E2E8F0] rounded w-16"
                         />
                         <span className="text-[10px] text-[#64748B]">
-                          {predAwayContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
+                          {predAwayContinentalGap === undefined ? "Unknown" : predAwayContinentalGap <= 3 ? "⚠️ High fatigue risk (modifier applies)" : "✅ Adequate rest"}
                         </span>
                       </div>
                     </div>
@@ -2711,7 +2649,7 @@ export default function App() {
                     <div className="bg-[#15803D] text-white p-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Dribbble className="w-5 h-5" />
-                        <h3 className="text-sm font-bold tracking-tight">Bias-Free Pitch Spread Predictions</h3>
+                        <h3 className="text-sm font-bold tracking-tight">Evidence-Gated Pitch Spread Predictions</h3>
                       </div>
                       <span className="text-xs uppercase bg-[#166534] px-2.5 py-1 rounded font-semibold tracking-wider">
                         Poisson Probability Spreads
@@ -2729,7 +2667,7 @@ export default function App() {
                         </div>
 
                         <div className="text-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Bias-Free Spread score</span>
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Evidence-Gated Spread score</span>
                           <span className="text-3xl font-mono font-bold text-[#0F172A]">
                             {simulationResult.homeScore} - {simulationResult.awayScore}
                           </span>
@@ -2743,35 +2681,14 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Statistical Confidence Interval metrics based on sample size */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[var(--bg-badge)] border border-[var(--border-primary)] p-4 rounded-xl items-center">
-                        <div className="flex flex-col items-center md:items-start text-center md:text-left">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Model Confidence Level</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-2xl font-black text-[#15803D] dark:text-[#10b981]">
-                              {simulationResult.confidencePercentage}%
-                            </span>
-                            <span className="text-[10px] font-semibold text-slate-500 bg-white dark:bg-emerald-950/20 px-2 py-0.5 rounded-md border border-[var(--border-primary)] shadow-xs">
-                              Matches: {(teamMatrices[predHomeTeam]?.sample_size_matches ?? 0) + (teamMatrices[predAwayTeam]?.sample_size_matches ?? 0)}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-[#64748B] mt-0.5">Asymptotic confidence error bounds</span>
-                        </div>
-
-                        <div className="flex flex-col items-center text-center">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Home Expected Goals Range</span>
-                          <span className="text-lg font-extrabold font-mono text-[#0F172A]">
-                            [{simulationResult.homeConfidenceLower.toFixed(2)} - {simulationResult.homeConfidenceUpper.toFixed(2)}]
+                      {/* Confidence is intentionally unavailable until a calibrated evaluation dataset exists. */}
+                      <div className="bg-[var(--bg-badge)] border border-[var(--border-primary)] p-4 rounded-xl">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">Model Confidence</span>
+                          <span className="text-lg font-black text-amber-600">Unavailable</span>
+                          <span className="text-[10px] text-[#64748B]">
+                            Confidence intervals are not reported from heuristic sample counts. Out-of-sample calibration is required first.
                           </span>
-                          <span className="text-[9px] text-[#15803D] dark:text-[#10b981] font-bold mt-0.5">{predHomeTeam} spread</span>
-                        </div>
-
-                        <div className="flex flex-col items-center md:items-end md:text-right">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-1">Away Expected Goals Range</span>
-                          <span className="text-lg font-extrabold font-mono text-[#0F172A]">
-                            [{simulationResult.awayConfidenceLower.toFixed(2)} - {simulationResult.awayConfidenceUpper.toFixed(2)}]
-                          </span>
-                          <span className="text-[9px] text-[#15803D] dark:text-[#10b981] font-bold mt-0.5">{predAwayTeam} spread</span>
                         </div>
                       </div>
 
@@ -2802,7 +2719,7 @@ export default function App() {
 
                       {/* Transparent analytical log matching 10 rules */}
                       <div>
-                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Bias-Free Calculation Transparency Log</span>
+                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Evidence-Gated Calculation Transparency Log</span>
                         <div className="bg-[#FAF9F6] border border-[#E2E8F0] p-4 rounded-xl font-mono text-[10px] text-[#475569] flex flex-col gap-1.5 leading-relaxed">
                           {simulationResult.reasons.map((reason, idx) => (
                             <div key={idx} className="flex items-start gap-2">
@@ -2902,7 +2819,7 @@ export default function App() {
                         onClick={applyProposedResearch}
                         className="bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold px-6 py-2.5 rounded-lg transition"
                       >
-                        Apply Calibration Global Defaults
+                        Review Recommendation (Not Applied)
                       </button>
                     </div>
                   </div>
@@ -3082,7 +2999,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Home Adv (5-M Avg)"
+                          dataKey="Home Adv (5-event Avg)"
                           stroke="#10b981"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3090,7 +3007,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Form Momentum (5-M Avg)"
+                          dataKey="Form Momentum (5-event Avg)"
                           stroke="#3b82f6"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3098,7 +3015,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Volatility (5-M Avg)"
+                          dataKey="Volatility (5-event Avg)"
                           stroke="#f59e0b"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3106,7 +3023,7 @@ export default function App() {
                         />
                         <Line
                           type="monotone"
-                          dataKey="Fatigue Penalty (5-M Avg)"
+                          dataKey="Fatigue Penalty (5-event Avg)"
                           stroke="#ef4444"
                           strokeWidth={2.5}
                           activeDot={{ r: 6 }}
@@ -3138,10 +3055,10 @@ export default function App() {
       {/* --- Footer Area --- */}
       <footer className="bg-white border-t border-[#E2E8F0] mt-12 py-6">
         <div className="max-w-7xl mx-auto px-6 text-center text-xs text-[#64748B] flex flex-col md:flex-row items-center justify-between gap-4">
-          <p>© 2026 Football Analytical Engine. Ingestion parameters strictly calibrated for bias-free pitch spreads.</p>
+          <p>© 2026 Football Analytical Engine. Ingestion parameters strictly calibrated for evidence-gated pitch spreads.</p>
           <div className="flex items-center gap-4">
             <span className="hover:text-[#0F172A] transition">Strict 10 Matrix Rules Standard</span>
-            <span className="hover:text-[#0F172A] transition">Continuous Reinforcement Ingestion</span>
+            <span className="hover:text-[#0F172A] transition">Verified-result calibration only</span>
           </div>
         </div>
       </footer>

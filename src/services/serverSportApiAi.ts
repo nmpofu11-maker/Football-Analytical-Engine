@@ -83,7 +83,9 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         homeGoals: hScore >= 0 ? hScore : undefined,
         awayGoals: aScore >= 0 ? aScore : undefined,
         resultSettled: isFinished,
-        source: "sportapi-ai"
+        source: "sportapi-ai",
+        sourceConfidence: "verified",
+        ingestedAt: new Date().toISOString()
       };
     });
   } catch (err: any) {
