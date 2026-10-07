@@ -1061,61 +1061,75 @@ app.get("/api/real-fixtures", async (req, res) => {
   try {
     const manifest = loadPersistedFixturesFromDisk();
     const diskMatches = manifest.filter((f: any) => f.date === targetDate);
-
     const cachedEntry = dailyFixtureCache[targetDate];
-    const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-    if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION)) {
+
+    const today = getTodayDateStrServer();
+    const cacheDuration = targetDate < today ? 30 * 60 * 1000 : targetDate === today ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
+    const cacheFresh = cachedEntry && Date.now() - cachedEntry.timestamp < cacheDuration;
+
+    if (cacheFresh) {
       const merged = mergeServerSlates(diskMatches, cachedEntry.fixtures);
-      return res.json({ fixtures: merged, source: "cache" });
+      return res.json({
+        fixtures: merged,
+        source: "cache",
+        stale: false,
+        fetchedAt: new Date(cachedEntry.timestamp).toISOString()
+      });
     }
 
-    if (diskMatches.length > 0) {
-      dailyFixtureCache[targetDate] = { fixtures: diskMatches, timestamp: Date.now() };
-      return res.json({ fixtures: diskMatches, source: "disk-manifest" });
-    }
+    // Re-query trusted providers after the cache expires. Disk data is retained
+    // as a fallback/enrichment layer rather than being allowed to hide fresh data.
+    const providerResults: any[] = [];
+    const sources: string[] = [];
 
-    // 1. SportAPI.ai (Primary Provider)
     const sportApiFixtures = await fetchSportApiAiFixtures(targetDate);
-    if (sportApiFixtures && sportApiFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, sportApiFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "sportapi-ai" });
+    if (sportApiFixtures.length) {
+      providerResults.push(...sportApiFixtures);
+      sources.push("sportapi-ai");
     }
 
-    // 2. TheRundown (Secondary Provider)
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
-    if (rundownFixtures && rundownFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, rundownFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "therundown" });
+    if (rundownFixtures.length) {
+      providerResults.push(...rundownFixtures);
+      sources.push("therundown");
     }
 
-    // 3. Static fallback
-    if (STATIC_REAL_WORLD_FIXTURES[targetDate]) {
-      const merged = mergeServerSlates(diskMatches, STATIC_REAL_WORLD_FIXTURES[targetDate]);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "static" });
+    let merged = mergeServerSlates(diskMatches, providerResults);
+    let source = sources.length ? sources.join("+") : "disk-manifest";
+
+    // ESPN is discovery-only. It cannot create a prediction or verified result.
+    if (merged.length === 0) {
+      const espnFixtures = await fetchEspnFixtures(targetDate);
+      const unverified = espnFixtures.map((f: any) => ({
+        ...f,
+        source: "espn",
+        sourceConfidence: "unknown",
+        ingestedAt: new Date().toISOString()
+      }));
+      merged = mergeServerSlates(diskMatches, unverified);
+      source = unverified.length ? "espn-discovery" : "none";
     }
 
-    // 4. ESPN fallback scraper
-    const espnFixtures = await fetchEspnFixtures(targetDate);
-    if (espnFixtures && espnFixtures.length > 0) {
-      const merged = mergeServerSlates(diskMatches, espnFixtures);
-      generatePreMatchPredictions(merged);
-      dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-      return res.json({ fixtures: merged, source: "espn-scraper" });
+    if (providerResults.length) {
+      saveFixturesToDisk(mergeServerSlates(manifest, providerResults));
+      generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
     }
 
-    const backupFixtures = generateFailsafeFixtures(targetDate);
-    const merged = mergeServerSlates(diskMatches, backupFixtures);
-    generatePreMatchPredictions(merged);
-    return res.json({ fixtures: merged, source: "error-fallback" });
+    dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
+    return res.json({
+      fixtures: merged,
+      source,
+      stale: providerResults.length === 0,
+      fetchedAt: new Date().toISOString()
+    });
   } catch (err: any) {
-    const backupFixtures = generateFailsafeFixtures(targetDate);
-    return res.json({ fixtures: backupFixtures, source: "error-fallback" });
+    const backup = loadPersistedFixturesFromDisk().filter((f: any) => f.date === targetDate);
+    return res.json({
+      fixtures: backup,
+      source: "disk-fallback",
+      stale: true,
+      error: "Fresh fixture providers were unavailable; disk data may be stale."
+    });
   }
 });
 
