@@ -10,7 +10,7 @@ function generateDefaultMatricesServer(): Record<string, any> {
   LOCKED_80_TEAMS.forEach(team => {
     const isFast = isFastPacedLeagueTeam(team);
     matrices[team] = {
-      sample_size_matches: 15,
+      sample_size_matches: 0,
       learned_coefficients: {
         home_advantage_multiplier: 1.12,
         form_momentum_weight: 0.95,
@@ -73,7 +73,7 @@ export interface CoefficientHistoryEntry {
   volatility_index: number;
   fatigue_penalty_modifier: number;
   sample_size_matches: number;
-  trigger_reason: string;
+  trigger_reason: string;\n  evidence_source?: string;
 }
 
 // Ensure database files exist
@@ -190,7 +190,7 @@ export function addHistoryEntry(entry: Omit<CoefficientHistoryEntry, "id" | "tim
 }
 
 // Apply Learning Calibration Algorithm
-export function applyCalibrationServer(homeTeam: string, awayTeam: string, homeGoals: number, awayGoals: number, homeXg: number, awayXg: number, wasDerby: boolean, matchId: string) {
+export function applyCalibrationServer(homeTeam: string, awayTeam: string, homeGoals: number, awayGoals: number, homeXg: number, awayXg: number, wasDerby: boolean, matchId: string, evidenceSource: string = "verified-result") {
   const matrices = getMatrices();
   let updatedCount = 0;
 
@@ -249,7 +249,7 @@ export function applyCalibrationServer(homeTeam: string, awayTeam: string, homeG
         volatility_index: Number(current.learned_coefficients.volatility_index.toFixed(3)),
         fatigue_penalty_modifier: Number(fatigueFactor.toFixed(3)),
         sample_size_matches: matchesCount,
-        trigger_reason: `Automatic verification of match [${report.homeTeam} vs ${report.awayTeam} (${report.homeGoals}-${report.awayGoals})]. ID: ${matchId}`
+        trigger_reason: `Calibrated from verified out-of-sample result [${report.homeTeam} vs ${report.awayTeam} (${report.homeGoals}-${report.awayGoals})]. ID: ${matchId}`,\n        evidence_source: evidenceSource
       });
     }
   });
