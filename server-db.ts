@@ -73,7 +73,8 @@ export interface CoefficientHistoryEntry {
   volatility_index: number;
   fatigue_penalty_modifier: number;
   sample_size_matches: number;
-  trigger_reason: string;\n  evidence_source?: string;
+  trigger_reason: string;
+  evidence_source?: string;
 }
 
 // Ensure database files exist
@@ -249,7 +250,8 @@ export function applyCalibrationServer(homeTeam: string, awayTeam: string, homeG
         volatility_index: Number(current.learned_coefficients.volatility_index.toFixed(3)),
         fatigue_penalty_modifier: Number(fatigueFactor.toFixed(3)),
         sample_size_matches: matchesCount,
-        trigger_reason: `Calibrated from verified out-of-sample result [${report.homeTeam} vs ${report.awayTeam} (${report.homeGoals}-${report.awayGoals})]. ID: ${matchId}`,\n        evidence_source: evidenceSource
+        trigger_reason: `Calibrated from verified out-of-sample result [${report.homeTeam} vs ${report.awayTeam} (${report.homeGoals}-${report.awayGoals})]. ID: ${matchId}`,
+        evidence_source: evidenceSource
       });
     }
   });
