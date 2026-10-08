@@ -1072,9 +1072,18 @@ app.get("/api/real-fixtures", async (req, res) => {
     const today = getTodayDateStrServer();
     const cacheDuration = targetDate <= today ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
 
+    // Cache is allowed only as a freshness-preserving source; the response is still
+    // restricted to fixtures carrying explicit verified provenance.
     if (cachedEntry && Date.now() - cachedEntry.timestamp < cacheDuration) {
-      const merged = mergeServerSlates(diskMatches, cachedEntry.fixtures);
-      return res.json({ fixtures: merged, source: "cache", stale: false, fetchedAt: new Date(cachedEntry.timestamp).toISOString() });
+      const merged = mergeServerSlates(diskMatches, cachedEntry.fixtures)
+        .filter((f: any) => f.sourceConfidence === "verified");
+      return res.json({
+        fixtures: merged,
+        source: "cache",
+        stale: false,
+        verifiedOnly: true,
+        fetchedAt: new Date(cachedEntry.timestamp).toISOString()
+      });
     }
 
     const providerResults: any[] = [];
@@ -1084,27 +1093,37 @@ app.get("/api/real-fixtures", async (req, res) => {
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
     if (rundownFixtures.length) { providerResults.push(...rundownFixtures); sources.push("therundown"); }
 
-    let merged = mergeServerSlates(diskMatches, providerResults);
-    let source = sources.length ? sources.join("+") : "disk-manifest";
-
-    if (merged.length === 0) {
-      const espnFixtures = (await fetchEspnFixtures(targetDate)).map((f: any) => ({
-        ...f, source: "espn", sourceConfidence: "unknown", ingestedAt: new Date().toISOString()
-      }));
-      merged = mergeServerSlates(diskMatches, espnFixtures);
-      source = espnFixtures.length ? "espn-discovery" : "none";
-    }
+    // Only trusted providers can create the verified fixture slate.
+    // ESPN remains discovery-only and is deliberately not returned as verified.
+    const mergedAll = mergeServerSlates(diskMatches, providerResults);
+    const verifiedFixtures = mergedAll.filter((f: any) => f.sourceConfidence === "verified");
+    const source = sources.length ? sources.join("+") : "none";
 
     if (providerResults.length) {
       saveFixturesToDisk(mergeServerSlates(manifest, providerResults));
-      generatePreMatchPredictions(merged.filter((f: any) => f.sourceConfidence === "verified"));
+      generatePreMatchPredictions(verifiedFixtures);
     }
 
-    dailyFixtureCache[targetDate] = { fixtures: merged, timestamp: Date.now() };
-    return res.json({ fixtures: merged, source, stale: providerResults.length === 0, fetchedAt: new Date().toISOString() });
+    dailyFixtureCache[targetDate] = { fixtures: verifiedFixtures, timestamp: Date.now() };
+    return res.json({
+      fixtures: verifiedFixtures,
+      source,
+      stale: providerResults.length === 0,
+      verifiedOnly: true,
+      fetchedAt: new Date().toISOString(),
+      message: verifiedFixtures.length
+        ? "Verified trusted-provider fixtures returned."
+        : "No verified fixtures were returned by trusted providers. Discovery/stale fixtures are intentionally withheld."
+    });
   } catch (err: any) {
-    const backup = loadPersistedFixturesFromDisk().filter((f: any) => f.date === targetDate);
-    return res.json({ fixtures: backup, source: "disk-fallback", stale: true, error: "Fresh fixture providers were unavailable; disk data may be stale." });
+    // Never disguise stale disk data as today's verified fixtures.
+    return res.json({
+      fixtures: [],
+      source: "none",
+      stale: true,
+      verifiedOnly: true,
+      error: "Fresh trusted fixture providers were unavailable; no fixtures were presented as verified."
+    });
   }
 });
 

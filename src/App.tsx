@@ -44,7 +44,7 @@ import { LOCKED_80_TEAMS, generateDefaultMatrices, isFastPacedLeagueTeam } from 
 import { PRESET_PAYLOADS, PresetPayload } from "./data/presets";
 import { simulateMatchup } from "./utils/footballMath";
 import { LearnedCoefficients, TeamIntelligenceMatrix, SyncPayload, MatchReport, SimulationResult } from "./types";
-import { FIXTURES_DATA, Fixture } from "./data/fixtures";
+import { Fixture } from "./data/fixtures";
 import { getTodayDateStr, get48HourRollingCutoff, formatDateHuman, getDynamicDatePickers } from "./utils/dateUtils";
 import { normalizeTeamName, getFixtureCompositeKey, mergeFixtureSlates } from "./utils/fixtureDedupe";
 import { parseBookmakerRawText, ParsedBookmakerMatch, calculateProbabilityDistribution } from "./utils/bookmakerParser";
@@ -750,10 +750,9 @@ export default function App() {
   };
 
   // Live Fixtures loaded dynamically with dual-layer server disk persistence
-  const [liveFixtures, setLiveFixtures] = useState<Fixture[]>(() => {
-    const saved = localStorage.getItem("football_engine_cached_fixtures");
-    return saved ? JSON.parse(saved) : FIXTURES_DATA;
-  });
+  // Do not render cached/local fixtures as today's verified slate before the server verifies them.
+  // The server is the source of truth for real-world fixture provenance.
+  const [liveFixtures, setLiveFixtures] = useState<Fixture[]>([]);
   const [isLoadingRealFixtures, setIsLoadingRealFixtures] = useState<boolean>(false);
   const [fixturesError, setFixturesError] = useState<string | null>(null);
 
@@ -770,7 +769,10 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           if (data.fixtures && Array.isArray(data.fixtures) && data.fixtures.length > 0) {
-            setLiveFixtures(prev => mergeFixtureSlates(prev, data.fixtures));
+            setLiveFixtures(prev => mergeFixtureSlates(
+              prev,
+              data.fixtures.filter((f: Fixture) => f.sourceConfidence === "verified")
+            ));
           }
         }
       } catch (err) {
@@ -797,9 +799,13 @@ export default function App() {
         if (data.error) {
           throw new Error(data.error);
         }
-        if (active && data.fixtures && data.fixtures.length > 0) {
-          // Hardened merge: NEVER wipe bookmaker or regional slates on disk
-          setLiveFixtures(prev => mergeFixtureSlates(prev, data.fixtures));
+        if (active) {
+          // Only trusted-provider fixtures enter the normal fixture display.
+          // Unknown/ESPN discovery fixtures are intentionally excluded from the verified slate.
+          const verifiedFixtures = Array.isArray(data.fixtures)
+            ? data.fixtures.filter((f: Fixture) => f.sourceConfidence === "verified")
+            : [];
+          setLiveFixtures(prev => mergeFixtureSlates(prev, verifiedFixtures));
         }
       } catch (err: any) {
         console.warn("Real-world fixtures fetch fell back:", err.message);
@@ -1431,7 +1437,7 @@ export default function App() {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-2">
                     <span className="text-xs font-bold text-[#475569] uppercase tracking-wider">
-                      Matches Scheduled for {selectedFixtureDate === "all" ? "All Calendar Dates" : formatDateHuman(selectedFixtureDate)} ({filteredFixturesList.length})
+                      Verified Matches Scheduled for {selectedFixtureDate === "all" ? "All Calendar Dates" : formatDateHuman(selectedFixtureDate)} ({filteredFixturesList.length})
                     </span>
                     {selectedFixtureDate !== "all" && (
                       <button 
@@ -1458,9 +1464,14 @@ export default function App() {
                             }`}
                           >
                             <div className="flex items-center justify-between text-[10px] text-[#64748B]">
-                              <span className="px-2 py-0.5 bg-[#F1F5F9] rounded font-bold text-[#334155]">
-                                {match.competition}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2 py-0.5 bg-[#F1F5F9] rounded font-bold text-[#334155]">
+                                  {match.competition}
+                                </span>
+                                <span className="px-2 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  VERIFIED · {match.source || "trusted provider"}
+                                </span>
+                              </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="font-semibold">{match.date} @ {match.time}</span>
                                 <button
@@ -1510,7 +1521,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="p-8 text-center bg-[#FAFAFA] border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
-                      No scheduled matches found for this selection matching your filters. Try selecting "All Matches" or another calendar date.
+                      No verified matches are currently available for this date. The app will not display stale, manual, bookmaker-only, or ESPN-discovery fixtures as verified games.
                     </div>
                   )}
                 </div>
