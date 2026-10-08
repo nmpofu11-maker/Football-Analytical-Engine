@@ -44,7 +44,7 @@ import { LOCKED_80_TEAMS, generateDefaultMatrices, isFastPacedLeagueTeam } from 
 import { PRESET_PAYLOADS, PresetPayload } from "./data/presets";
 import { simulateMatchup } from "./utils/footballMath";
 import { LearnedCoefficients, TeamIntelligenceMatrix, SyncPayload, MatchReport, SimulationResult } from "./types";
-import { FIXTURES_DATA, Fixture } from "./data/fixtures";
+import { Fixture } from "./data/fixtures";
 import { getTodayDateStr, get48HourRollingCutoff, formatDateHuman, getDynamicDatePickers } from "./utils/dateUtils";
 import { normalizeTeamName, getFixtureCompositeKey, mergeFixtureSlates } from "./utils/fixtureDedupe";
 import { parseBookmakerRawText, ParsedBookmakerMatch, calculateProbabilityDistribution } from "./utils/bookmakerParser";
