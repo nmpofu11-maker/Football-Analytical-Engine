@@ -68,7 +68,7 @@ function normalizeTeamServer(name: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\b(fc|cf|sc|afc|ac|as|ssc|cd|fk|sk|bk|if|ff|w|women|ladies|u21|u23|reserves|united|city|rovers|athletic|town)\b/gi, "")
+    .replace(/\b(fc|cf|sc|afc|ac|as|ssc|cd|fk|sk|bk|if|ff|women|ladies|u21|u23|reserves|rovers|athletic)\b/gi, "")
     .replace(/[^a-z0-9]/g, "")
     .trim();
 }
@@ -142,11 +142,13 @@ function simulateMatchupServer(match: any) {
 
 function generatePreMatchPredictions(fixtures: any[]) {
   const existingPreds = getPredictions();
+  const existingKeys = new Set(existingPreds.flatMap((p: any) => [String(p.fixture_id), String(p.id)]));
   let added = 0;
   for (const f of fixtures) {
     if (f.sourceConfidence === "unknown") continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
-    const alreadyExists = existingPreds.some(p => p.fixture_id === matchKey || p.fixture_id === String(f.id));
+    const fixtureId = String(f.id ?? "");
+    const alreadyExists = existingKeys.has(matchKey) || existingKeys.has(fixtureId);
     if (!alreadyExists) {
       const sim = simulateMatchupServer(f);
       addPrediction({
@@ -161,6 +163,8 @@ function generatePreMatchPredictions(fixtures: any[]) {
         model_version: "rule-engine-v1",
         source: f.source || "model-engine"
       });
+      existingKeys.add(matchKey);
+      if (fixtureId) existingKeys.add(fixtureId);
       added++;
     }
   }
