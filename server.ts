@@ -43,6 +43,24 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
+app.use((req, res, next) => {
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method.toUpperCase());
+  if (!mutating || !req.path.startsWith("/api/") || req.path === "/api/results/push-scores") return next();
+
+  const configuredKey = process.env.ADMIN_API_KEY;
+  if (!configuredKey) {
+    return res.status(503).json({ error: "Administrative API is disabled until the ADMIN_API_KEY secret is configured." });
+  }
+  const providedKey = req.header("x-admin-api-key") || "";
+  const expected = Buffer.from(configuredKey);
+  const provided = Buffer.from(providedKey);
+  const { timingSafeEqual } = require("node:crypto");
+  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+    return res.status(401).json({ error: "A valid administrative API key is required for write operations." });
+  }
+  return next();
+});
+
 
 // Dynamic date helpers to eliminate hardcoded date cutoffs
 function getTodayDateStrServer(): string {
