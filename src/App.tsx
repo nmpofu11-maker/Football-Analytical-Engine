@@ -2491,8 +2491,8 @@ export default function App() {
             {activeTab === "predictor" && (
               <div className="flex flex-col gap-6">
                 <div>
-                  <h2 className="text-lg font-bold text-[#0F172A]">Evidence-Gated Head-To-Head Simulator</h2>
-                  <p className="text-sm text-[#64748B]">Select Home and Away teams from the locked favorite profile list and configure match context to test the predictive weight engine outputs.</p>
+                  <h2 className="text-lg font-bold text-[#0F172A]">Exploratory Head-To-Head Simulator</h2>
+                  <p className="text-sm text-[#64748B]">Explore model mechanics using available team matrices and manually supplied context. This is not a verified fixture forecast unless current, match-specific evidence has been supplied and validated.</p>
                 </div>
 
                 {/* Team Dropdown Selectors */}
@@ -2660,7 +2660,7 @@ export default function App() {
                     <div className="bg-[#15803D] text-white p-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Dribbble className="w-5 h-5" />
-                        <h3 className="text-sm font-bold tracking-tight">Evidence-Gated Pitch Spread Predictions</h3>
+                        <h3 className="text-sm font-bold tracking-tight">Exploratory Poisson Model Output</h3>
                       </div>
                       <span className="text-xs uppercase bg-[#166534] px-2.5 py-1 rounded font-semibold tracking-wider">
                         Poisson Probability Spreads
@@ -2669,7 +2669,12 @@ export default function App() {
 
                     <div className="p-6 bg-white flex flex-col gap-6">
                       
-                      {/* Main scoreboard forecast */}
+                      <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-950 p-4 rounded-xl">
+                        <div className="font-bold text-sm">Not a verified match prediction</div>
+                        <p className="text-xs mt-1">The model starts from baseline expected-goal priors. Current form, confirmed lineups, injuries, standings, and match-specific statistics are not automatically loaded into this simulator. Percentages below are mathematical model outputs, not validated betting probabilities. Model confidence remains unavailable until out-of-sample calibration is demonstrated.</p>
+                      </div>
+
+                      {/* Main scoreboard estimate */}
                       <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-6 border-b border-[#F1F5F9] pb-6">
                         <div className="text-center md:text-right">
                           <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider block mb-1">Expected Home goals</span>
@@ -2678,7 +2683,7 @@ export default function App() {
                         </div>
 
                         <div className="text-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4">
-                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Evidence-Gated Spread score</span>
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block mb-2">Illustrative score estimate</span>
                           <span className="text-3xl font-mono font-bold text-[#0F172A]">
                             {simulationResult.homeScore} - {simulationResult.awayScore}
                           </span>
@@ -2705,7 +2710,7 @@ export default function App() {
 
                       {/* Win/Draw/Loss probabilities meters */}
                       <div className="flex flex-col gap-3">
-                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider">Outcome Probabilities</span>
+                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider">Exploratory outcome distribution (not calibrated)</span>
                         <div className="h-6 bg-gray-100 rounded-full overflow-hidden flex text-xs font-bold text-white text-center">
                           <div 
                             style={{ width: `${simulationResult.homeWinProbability}%` }}
@@ -2730,7 +2735,7 @@ export default function App() {
 
                       {/* Transparent analytical log matching 10 rules */}
                       <div>
-                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Evidence-Gated Calculation Transparency Log</span>
+                        <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Model assumptions and evidence gaps</span>
                         <div className="bg-[#FAF9F6] border border-[#E2E8F0] p-4 rounded-xl font-mono text-[10px] text-[#475569] flex flex-col gap-1.5 leading-relaxed">
                           {simulationResult.reasons.map((reason, idx) => (
                             <div key={idx} className="flex items-start gap-2">
