@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -54,7 +55,6 @@ app.use((req, res, next) => {
   const providedKey = req.header("x-admin-api-key") || "";
   const expected = Buffer.from(configuredKey);
   const provided = Buffer.from(providedKey);
-  const { timingSafeEqual } = require("node:crypto");
   if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
     return res.status(401).json({ error: "A valid administrative API key is required for write operations." });
   }
