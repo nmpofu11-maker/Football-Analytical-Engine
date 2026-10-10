@@ -12,14 +12,24 @@ export const SOCCER_SPORT_IDS = [
   { id: 13, name: "Europa League" }
 ];
 
+function validTeamName(value: any): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  return name && !/^(home|away|team ?[ab]|tbd|unknown|n\/a|none)$/i.test(name) ? name : "";
+}
+
 export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
   const apiKey = process.env.THERUNDOWN_KEY || "";
   if (!apiKey) {
     console.warn("THERUNDOWN_KEY not configured.");
     return [];
   }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
+    console.warn("TheRundown fixture request rejected: invalid date.");
+    return [];
+  }
 
-  let allFixtures: any[] = [];
+  const allFixtures: any[] = [];
+  const ingestedAt = new Date().toISOString();
 
   for (const sport of SOCCER_SPORT_IDS) {
     const url = `https://therundown.io/api/v2/sports/${sport.id}/events/${dateStr}?include=scores+all_periods`;
@@ -30,47 +40,54 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           "Accept": "application/json"
         }
       });
-
-      if (!res.ok) continue;
-      const data = await res.json();
-      const events = data.events || [];
-
+      if (!res.ok) {
+        console.warn(`TheRundown returned HTTP ${res.status} for ${sport.name}.`);
+        continue;
+      }
+      const payload: any = await res.json();
+      const events = Array.isArray(payload?.events) ? payload.events : Array.isArray(payload?.data?.events) ? payload.data.events : [];
       for (const ev of events) {
-        const teams = ev.teams || [];
-        const homeTeamObj = teams.find((t: any) => t.is_home) || teams[0] || { name: "Home" };
-        const awayTeamObj = teams.find((t: any) => !t.is_home) || teams[1] || { name: "Away" };
+        if (!ev || typeof ev !== "object") continue;
+        const teams = Array.isArray(ev.teams) ? ev.teams : [];
+        const homeObj = teams.find((t: any) => t?.is_home === true) ?? teams[0];
+        const awayObj = teams.find((t: any) => t?.is_home === false) ?? teams[1];
+        const homeName = validTeamName(homeObj?.name ?? homeObj?.team_name);
+        const awayName = validTeamName(awayObj?.name ?? awayObj?.team_name);
+        const eventId = ev.event_id ?? ev.id;
+        if (!homeName || !awayName || homeName.toLowerCase() === awayName.toLowerCase() || eventId === undefined || eventId === null) continue;
 
-        const homeName = homeTeamObj.name || "Home";
-        const awayName = awayTeamObj.name || "Away";
-
-        const scores = ev.score || {};
-        const homeScore = scores.score_home;
-        const awayScore = scores.score_away;
-        const statusType = ev.score?.event_status || ev.status_type || "";
-
-        const isFinished = statusType === "STATUS_FINAL" || (homeScore !== null && awayScore !== null && statusType !== "STATUS_IN_PROGRESS");
-
-        const eventDate = ev.event_date ? new Date(ev.event_date) : new Date();
-        const timeStr = eventDate.toISOString().substring(11, 16) || "15:00";
+        const rawDate = ev.event_date ?? ev.start_time ?? ev.datetime;
+        const eventDate = rawDate ? new Date(rawDate) : null;
+        if (!eventDate || Number.isNaN(eventDate.getTime()) || eventDate.toISOString().slice(0, 10) !== dateStr) continue;
+        const timeStr = eventDate.toISOString().slice(11, 16);
+        const scores = ev.score ?? {};
+        const homeRaw = scores.score_home;
+        const awayRaw = scores.score_away;
+        const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
+        const awayScore = awayRaw === null || awayRaw === undefined || awayRaw === "" ? undefined : Number(awayRaw);
+        const validScores = Number.isInteger(homeScore) && homeScore! >= 0 && Number.isInteger(awayScore) && awayScore! >= 0;
+        const statusType = String(scores.event_status ?? ev.status_type ?? ev.status ?? "").toUpperCase();
+        const isFinished = ["STATUS_FINAL", "FINAL", "FINISHED", "FT", "AET", "PEN"].includes(statusType) ||
+          (validScores && !["STATUS_IN_PROGRESS", "LIVE", "IN_PROGRESS", "NS", "SCHEDULED"].includes(statusType));
 
         allFixtures.push({
-          id: ev.event_id || `rundown-${sport.id}-${Math.random().toString(36).substring(2, 9)}`,
+          id: String(eventId),
           date: dateStr,
           time: timeStr,
           homeTeam: homeName,
           awayTeam: awayName,
           competition: sport.name,
-          status: isFinished ? "FT" : (statusType === "STATUS_IN_PROGRESS" ? "LIVE" : "NS"),
-          homeGoals: homeScore !== null && homeScore !== undefined ? Number(homeScore) : undefined,
-          awayGoals: awayScore !== null && awayScore !== undefined ? Number(awayScore) : undefined,
+          status: isFinished ? "FT" : (["STATUS_IN_PROGRESS", "LIVE", "IN_PROGRESS"].includes(statusType) ? "LIVE" : "NS"),
+          homeGoals: validScores ? homeScore : undefined,
+          awayGoals: validScores ? awayScore : undefined,
           resultSettled: isFinished,
           source: "therundown",
           sourceConfidence: "verified",
-        ingestedAt: new Date().toISOString()
+          ingestedAt
         });
       }
-    } catch (e: any) {
-      console.warn(`TheRundown fetch warning for sport ${sport.name}:`, e.message);
+    } catch (err: any) {
+      console.warn(`TheRundown fetch warning for ${sport.name}:`, err?.message || err);
     }
   }
 

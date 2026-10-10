@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -43,6 +44,23 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
+app.use((req, res, next) => {
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method.toUpperCase());
+  if (!mutating || !req.path.startsWith("/api/") || req.path === "/api/results/push-scores") return next();
+
+  const configuredKey = process.env.ADMIN_API_KEY;
+  if (!configuredKey) {
+    return res.status(503).json({ error: "Administrative API is disabled until the ADMIN_API_KEY secret is configured." });
+  }
+  const providedKey = req.header("x-admin-api-key") || "";
+  const expected = Buffer.from(configuredKey);
+  const provided = Buffer.from(providedKey);
+  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+    return res.status(401).json({ error: "A valid administrative API key is required for write operations." });
+  }
+  return next();
+});
+
 
 // Dynamic date helpers to eliminate hardcoded date cutoffs
 function getTodayDateStrServer(): string {
@@ -68,7 +86,7 @@ function normalizeTeamServer(name: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\b(fc|cf|sc|afc|ac|as|ssc|cd|fk|sk|bk|if|ff|w|women|ladies|u21|u23|reserves|united|city|rovers|athletic|town)\b/gi, "")
+    .replace(/\b(fc|cf|sc|afc|ac|as|ssc|cd|fk|sk|bk|if|ff|women|ladies|u21|u23|reserves|rovers|athletic)\b/gi, "")
     .replace(/[^a-z0-9]/g, "")
     .trim();
 }
@@ -142,11 +160,13 @@ function simulateMatchupServer(match: any) {
 
 function generatePreMatchPredictions(fixtures: any[]) {
   const existingPreds = getPredictions();
+  const existingKeys = new Set(existingPreds.flatMap((p: any) => [String(p.fixture_id), String(p.id)]));
   let added = 0;
   for (const f of fixtures) {
     if (f.sourceConfidence === "unknown") continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
-    const alreadyExists = existingPreds.some(p => p.fixture_id === matchKey || p.fixture_id === String(f.id));
+    const fixtureId = String(f.id ?? "");
+    const alreadyExists = existingKeys.has(matchKey) || existingKeys.has(fixtureId);
     if (!alreadyExists) {
       const sim = simulateMatchupServer(f);
       addPrediction({
@@ -161,6 +181,8 @@ function generatePreMatchPredictions(fixtures: any[]) {
         model_version: "rule-engine-v1",
         source: f.source || "model-engine"
       });
+      existingKeys.add(matchKey);
+      if (fixtureId) existingKeys.add(fixtureId);
       added++;
     }
   }

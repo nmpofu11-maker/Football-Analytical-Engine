@@ -13,6 +13,35 @@ export interface SportApiAiFixture {
   awayGoals?: number;
   resultSettled: boolean;
   source: string;
+  sourceConfidence: "verified";
+  ingestedAt: string;
+}
+
+function readTeam(value: any): string {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") {
+    const name = value.name ?? value.team_name ?? value.display_name;
+    return typeof name === "string" ? name.trim() : "";
+  }
+  return "";
+}
+
+function readItems(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  for (const key of ["fixtures", "data", "matches", "results", "events"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+    if (payload[key] && typeof payload[key] === "object") {
+      for (const nested of ["fixtures", "data", "matches", "results", "events"]) {
+        if (Array.isArray(payload[key][nested])) return payload[key][nested];
+      }
+    }
+  }
+  return [];
+}
+
+function isPlaceholderTeam(name: string): boolean {
+  return !name || /^(home|away|team ?[ab]|tbd|unknown|n\/a|none)$/i.test(name);
 }
 
 export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApiAiFixture[]> {
@@ -21,10 +50,13 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
     console.warn("SPORTAPI_AI_KEY not configured.");
     return [];
   }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
+    console.warn("SportAPI.ai fixture request rejected: invalid date.");
+    return [];
+  }
 
-  const url = `https://sportapi.ai/api/fixtures/date/${dateStr}`;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`https://sportapi.ai/api/fixtures/date/${dateStr}`, {
       headers: {
         "X-Api-Key": apiKey,
         "Authorization": `Bearer ${apiKey}`,
@@ -32,64 +64,64 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         "User-Agent": "Football-Analytical-Engine/1.0"
       }
     });
-
-    const rawText = await res.text();
-    const firstBrace = rawText.indexOf('{');
-    const lastBrace = rawText.lastIndexOf('}');
-    const firstBracket = rawText.indexOf('[');
-    const lastBracket = rawText.lastIndexOf(']');
-
-    let parsed: any = [];
-    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket && (firstBrace === -1 || firstBracket < firstBrace)) {
-      const jsonStr = rawText.substring(firstBracket, lastBracket + 1);
-      parsed = JSON.parse(jsonStr);
-    } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const jsonStr = rawText.substring(firstBrace, lastBrace + 1);
-      const data = JSON.parse(jsonStr);
-      parsed = Array.isArray(data) ? data : (data.fixtures || data.data || data.matches || []);
-    } else {
-      parsed = JSON.parse(rawText);
+    if (!res.ok) {
+      console.warn(`SportAPI.ai returned HTTP ${res.status}.`);
+      return [];
     }
 
-    const items = Array.isArray(parsed) ? parsed : (parsed.fixtures || parsed.data || parsed.matches || []);
+    const payload = await res.json();
+    const items = readItems(payload);
+    const ingestedAt = new Date().toISOString();
+    const fixtures: SportApiAiFixture[] = [];
 
-    return items.map((f: any) => {
-      const home = typeof f.home_team === "object" ? (f.home_team?.name || f.homeTeam || "Home") : (f.home_team || f.homeTeam || "Home");
-      const away = typeof f.away_team === "object" ? (f.away_team?.name || f.awayTeam || "Away") : (f.away_team || f.awayTeam || "Away");
-      const comp = typeof f.competition === "object" ? (f.competition?.name || f.competition || "League") : (f.competition || "League");
-      
-      const rawDt = f.datetime || f.kickoff_time || f.date || `${dateStr}T15:00:00Z`;
-      let timeStr = "15:00";
-      if (rawDt.includes("T")) {
-        timeStr = rawDt.split("T")[1]?.substring(0, 5) || "15:00";
-      } else if (rawDt.includes(" ")) {
-        timeStr = rawDt.split(" ")[1]?.substring(0, 5) || "15:00";
-      }
+    for (const f of items) {
+      if (!f || typeof f !== "object") continue;
+      const home = readTeam(f.home_team ?? f.homeTeam ?? f.home ?? f.teams?.home);
+      const away = readTeam(f.away_team ?? f.awayTeam ?? f.away ?? f.teams?.away);
+      if (isPlaceholderTeam(home) || isPlaceholderTeam(away) || home.toLowerCase() === away.toLowerCase()) continue;
 
-      const rawStatus = (f.status || f.match_status || "NS").toUpperCase();
-      const hScore = Number(f.home_score ?? f.homeGoals ?? f.home_goals ?? -1);
-      const aScore = Number(f.away_score ?? f.awayGoals ?? f.away_goals ?? -1);
+      const rawDate = f.datetime ?? f.kickoff_time ?? f.kickoff ?? f.start_time ?? f.date;
+      const parsedDate = typeof rawDate === "string" || typeof rawDate === "number" ? new Date(rawDate) : null;
+      const validKickoff = parsedDate && !Number.isNaN(parsedDate.getTime());
+      // A provider record without an explicit, parseable kickoff cannot be verified for a requested date.
+      if (!validKickoff) continue;
+      const fixtureDate = parsedDate!.toISOString().slice(0, 10);
+      const time = parsedDate!.toISOString().slice(11, 16);
+      if (fixtureDate !== dateStr) continue;
 
-      const isFinished = ["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME"].includes(rawStatus) || (hScore >= 0 && aScore >= 0 && rawStatus !== "LIVE");
+      const id = f.id ?? f.fixture_id ?? f.event_id;
+      if (id === undefined || id === null || String(id).trim() === "") continue;
 
-      return {
-        id: f.id || `sportapi-${Math.random().toString(36).substring(2, 9)}`,
-        date: dateStr,
-        time: timeStr,
+      const rawStatus = String(f.status ?? f.match_status ?? "NS").toUpperCase();
+      const homeRaw = f.home_score ?? f.homeGoals ?? f.home_goals ?? f.scores?.home;
+      const awayRaw = f.away_score ?? f.awayGoals ?? f.away_goals ?? f.scores?.away;
+      const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
+      const awayScore = awayRaw === null || awayRaw === undefined || awayRaw === "" ? undefined : Number(awayRaw);
+      const validScores = Number.isInteger(homeScore) && homeScore! >= 0 && Number.isInteger(awayScore) && awayScore! >= 0;
+      const isFinished = ["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL"].includes(rawStatus) || (validScores && !["LIVE", "INPLAY", "IN_PROGRESS", "NS", "SCHEDULED"].includes(rawStatus));
+      const competitionValue = f.competition ?? f.league ?? f.tournament;
+      const competition = typeof competitionValue === "string" ? competitionValue.trim() : readTeam(competitionValue);
+
+      fixtures.push({
+        id: String(id),
+        date: fixtureDate,
+        time,
         homeTeam: home,
         awayTeam: away,
-        competition: comp,
+        competition: competition || "Competition unavailable",
         status: isFinished ? "FT" : rawStatus,
-        homeGoals: hScore >= 0 ? hScore : undefined,
-        awayGoals: aScore >= 0 ? aScore : undefined,
+        homeGoals: validScores ? homeScore : undefined,
+        awayGoals: validScores ? awayScore : undefined,
         resultSettled: isFinished,
         source: "sportapi-ai",
         sourceConfidence: "verified",
-        ingestedAt: new Date().toISOString()
-      };
-    });
+        ingestedAt
+      });
+    }
+
+    return fixtures;
   } catch (err: any) {
-    console.error("SportAPI.ai fetch error:", err.message);
+    console.error("SportAPI.ai fetch error:", err?.message || err);
     return [];
   }
 }
