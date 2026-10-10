@@ -49,6 +49,21 @@ import { getTodayDateStr, get48HourRollingCutoff, formatDateHuman, getDynamicDat
 import { normalizeTeamName, getFixtureCompositeKey, mergeFixtureSlates } from "./utils/fixtureDedupe";
 import { parseBookmakerRawText, ParsedBookmakerMatch, calculateProbabilityDistribution } from "./utils/bookmakerParser";
 
+async function secureApiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method || "GET").toUpperCase();
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  const headers = new Headers(init.headers);
+  if (url.startsWith("/api/") && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    let key = sessionStorage.getItem("football_engine_admin_api_key") || "";
+    if (!key) {
+      key = window.prompt("Enter the ADMIN_API_KEY configured in your deployment to perform a write action:")?.trim() || "";
+      if (key) sessionStorage.setItem("football_engine_admin_api_key", key);
+    }
+    if (key) headers.set("x-admin-api-key", key);
+  }
+  return fetch(input, { ...init, headers });
+}
+
 export default function App() {
   // Theme Dark Mode State (Persisted in LocalStorage)
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -89,7 +104,7 @@ export default function App() {
   const [coeffHistoryLogs, setCoeffHistoryLogs] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("/api/matrices")
+    secureApiFetch("/api/matrices")
       .then(res => res.json())
       .then(data => {
         if (data.matrices) {
@@ -99,14 +114,14 @@ export default function App() {
       })
       .catch(e => console.warn("Failed to fetch server matrices:", e));
 
-    fetch("/api/results/verified")
+    secureApiFetch("/api/results/verified")
       .then(res => res.json())
       .then(data => {
         if (data.results) setVerifiedResults(data.results);
       })
       .catch(err => console.warn("Failed to load verified results:", err));
 
-    fetch(`/api/coefficients/history?team=${encodeURIComponent(trendTeam)}`)
+    secureApiFetch(`/api/coefficients/history?team=${encodeURIComponent(trendTeam)}`)
       .then(res => res.json())
       .then(data => {
         if (data.history) setCoeffHistoryLogs(data.history);
@@ -234,7 +249,7 @@ export default function App() {
     setIsDigesting(true);
     setDigestError(null);
     try {
-      const response = await fetch("/api/digest", {
+      const response = await secureApiFetch("/api/digest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payload: rawPayload }),
@@ -355,7 +370,7 @@ export default function App() {
     };
     setTeamMatrices(updated);
     try {
-      const res = await fetch("/api/matrices", {
+      const res = await secureApiFetch("/api/matrices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matrices: updated })
@@ -426,7 +441,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch("/api/self-improvement", {
+      const response = await secureApiFetch("/api/self-improvement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentCoefficients: teamMatrices })
@@ -479,7 +494,7 @@ export default function App() {
       setTeamMatrices(preserved);
       setMetaNotes("Neutral priors restored. Verified sample sizes were preserved.");
       try {
-        await fetch("/api/matrices", {
+        await secureApiFetch("/api/matrices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ matrices: preserved })
@@ -528,7 +543,7 @@ export default function App() {
     setIsSavingToDisk(true);
     try {
       // 1. Dispatch asynchronous persist call to server disk manifest (Zero Data Loss)
-      const response = await fetch("/api/fixtures/ingest-slate", {
+      const response = await secureApiFetch("/api/fixtures/ingest-slate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fixtures: matchesToCommit, source: "bookmaker-import" })
@@ -562,7 +577,7 @@ export default function App() {
   const handlePurgeAllFixtures = async () => {
     if (confirm("Are you sure you want to purge all stored fixtures and reset to a clean, empty state?")) {
       try {
-        await fetch("/api/fixtures/purge", { method: "POST" });
+        await secureApiFetch("/api/fixtures/purge", { method: "POST" });
         localStorage.removeItem("football_engine_cached_fixtures");
         setLiveFixtures([]);
         setBookmakerParsedResults([]);
@@ -577,7 +592,7 @@ export default function App() {
   // Delete a specific match from local state & server filesystem manifest
   const handleDeleteMatch = async (matchId: string) => {
     try {
-      await fetch("/api/fixtures/delete", {
+      await secureApiFetch("/api/fixtures/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: matchId })
@@ -607,7 +622,7 @@ export default function App() {
       reader.onload = async (evt) => {
         const base64 = evt.target?.result as string;
 
-        const res = await fetch("/api/fixtures/upload-pdf", {
+        const res = await secureApiFetch("/api/fixtures/upload-pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -645,7 +660,7 @@ export default function App() {
 
   // Load Results Scanner Config on Mount
   useEffect(() => {
-    fetch("/api/results/config")
+    secureApiFetch("/api/results/config")
       .then(res => res.json())
       .then(data => {
         if (data.apiUrl !== undefined) setCustomResultsApiUrl(data.apiUrl);
@@ -663,7 +678,7 @@ export default function App() {
   // Save Results Scanner Configuration
   const handleSaveResultsConfig = async () => {
     try {
-      const res = await fetch("/api/results/config", {
+      const res = await secureApiFetch("/api/results/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -702,7 +717,7 @@ export default function App() {
       await handleSaveResultsConfig();
 
       // Trigger a live scan request to test endpoint response
-      const res = await fetch("/api/results/scan", { method: "POST" });
+      const res = await secureApiFetch("/api/results/scan", { method: "POST" });
       const data = await res.json();
 
       if (data.success) {
@@ -732,7 +747,7 @@ export default function App() {
     setIsScanningResults(true);
     setResultsScanMessage("Scanning custom API & official feeds for FT match scores...");
     try {
-      const res = await fetch("/api/results/scan", { method: "POST" });
+      const res = await secureApiFetch("/api/results/scan", { method: "POST" });
       const data = await res.json();
       if (data.fixtures) {
         setLiveFixtures(data.fixtures);
@@ -765,7 +780,7 @@ export default function App() {
   useEffect(() => {
     const loadServerDiskManifest = async () => {
       try {
-        const res = await fetch("/api/fixtures/persisted");
+        const res = await secureApiFetch("/api/fixtures/persisted");
         if (res.ok) {
           const data = await res.json();
           if (data.fixtures && Array.isArray(data.fixtures) && data.fixtures.length > 0) {
@@ -791,7 +806,7 @@ export default function App() {
       try {
         const todayStr = getTodayDateStr();
         const queryDate = selectedFixtureDate === "all" ? todayStr : selectedFixtureDate;
-        const response = await fetch(`/api/real-fixtures?date=${queryDate}`);
+        const response = await secureApiFetch(`/api/real-fixtures?date=${queryDate}`);
         if (!response.ok) {
           throw new Error("Failed to reach trusted fixture provider service");
         }
@@ -1135,7 +1150,7 @@ export default function App() {
                     <button
                       onClick={async () => {
                         try {
-                          const res = await fetch("/api/admin/run-ingest-now", { method: "POST" });
+                          const res = await secureApiFetch("/api/admin/run-ingest-now", { method: "POST" });
                           const data = await res.json();
                           alert(data.message || "Ingestion triggered!");
                           window.location.reload();
