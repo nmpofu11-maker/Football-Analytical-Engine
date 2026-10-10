@@ -83,8 +83,10 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const rawDate = f.datetime ?? f.kickoff_time ?? f.kickoff ?? f.start_time ?? f.date;
       const parsedDate = typeof rawDate === "string" || typeof rawDate === "number" ? new Date(rawDate) : null;
       const validKickoff = parsedDate && !Number.isNaN(parsedDate.getTime());
-      const fixtureDate = validKickoff ? parsedDate!.toISOString().slice(0, 10) : dateStr;
-      const time = validKickoff ? parsedDate!.toISOString().slice(11, 16) : "";
+      // A provider record without an explicit, parseable kickoff cannot be verified for a requested date.
+      if (!validKickoff) continue;
+      const fixtureDate = parsedDate!.toISOString().slice(0, 10);
+      const time = parsedDate!.toISOString().slice(11, 16);
       if (fixtureDate !== dateStr) continue;
 
       const id = f.id ?? f.fixture_id ?? f.event_id;
