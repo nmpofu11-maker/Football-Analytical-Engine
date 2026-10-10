@@ -4,6 +4,8 @@ import { LOCKED_80_TEAMS } from "../src/data/favoriteTeams";
 import { parseBookmakerRawText } from "../src/utils/bookmakerParser";
 import { getFixtureCompositeKey } from "../src/utils/fixtureDedupe";
 import { simulateMatchup } from "../src/utils/footballMath";
+import { fetchSportApiAiFixtures } from "../src/services/serverSportApiAi";
+import { fetchTheRundownFixtures } from "../src/services/serverTheRundown";
 
 describe("integrity guards", () => {
   it("contains exactly 80 unique target teams", () => {
@@ -52,5 +54,65 @@ describe("integrity guards", () => {
       getFixtureCompositeKey("Manchester City", "Liverpool", "2026-10-07"),
       getFixtureCompositeKey("Manchester United", "Liverpool", "2026-10-07")
     );
+  });
+});
+
+describe("live provider validation", () => {
+  it("returns no fixtures when SportAPI.ai rejects the request", async () => {
+    const oldKey = process.env.SPORTAPI_AI_KEY;
+    const oldFetch = globalThis.fetch;
+    process.env.SPORTAPI_AI_KEY = "test-key";
+    globalThis.fetch = (async () => new Response("unauthorized", { status: 401 })) as typeof fetch;
+    try {
+      assert.deepEqual(await fetchSportApiAiFixtures("2026-10-10"), []);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
+      else process.env.SPORTAPI_AI_KEY = oldKey;
+    }
+  });
+
+  it("rejects placeholder or incomplete SportAPI.ai fixtures", async () => {
+    const oldKey = process.env.SPORTAPI_AI_KEY;
+    const oldFetch = globalThis.fetch;
+    process.env.SPORTAPI_AI_KEY = "test-key";
+    globalThis.fetch = (async () => new Response(JSON.stringify({ fixtures: [
+      { id: "bad-home", home_team: "Home", away_team: "Liverpool", datetime: "2026-10-10T12:00:00Z" },
+      { id: "missing-id", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
+      { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" }
+    ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    try {
+      const fixtures = await fetchSportApiAiFixtures("2026-10-10");
+      assert.equal(fixtures.length, 1);
+      assert.equal(fixtures[0].id, "valid");
+      assert.equal(fixtures[0].homeTeam, "Arsenal");
+      assert.equal(fixtures[0].awayTeam, "Chelsea");
+      assert.equal(fixtures[0].sourceConfidence, "verified");
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
+      else process.env.SPORTAPI_AI_KEY = oldKey;
+    }
+  });
+
+  it("rejects TheRundown events with missing teams or event identifiers", async () => {
+    const oldKey = process.env.THERUNDOWN_KEY;
+    const oldFetch = globalThis.fetch;
+    process.env.THERUNDOWN_KEY = "test-key";
+    globalThis.fetch = (async () => new Response(JSON.stringify({ events: [
+      { event_id: "bad", event_date: "2026-10-10T12:00:00Z", teams: [{ is_home: true, name: "Home" }, { is_home: false, name: "Liverpool" }] },
+      { event_date: "2026-10-10T13:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
+      { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] }
+    ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    try {
+      const fixtures = await fetchTheRundownFixtures("2026-10-10");
+      assert.ok(fixtures.length >= 1);
+      assert.ok(fixtures.every(f => f.homeTeam !== "Home" && f.awayTeam !== "Away" && f.id));
+      assert.ok(fixtures.some(f => f.id === "valid"));
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
+      else process.env.THERUNDOWN_KEY = oldKey;
+    }
   });
 });
