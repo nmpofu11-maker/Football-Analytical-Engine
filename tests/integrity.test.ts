@@ -78,7 +78,7 @@ describe("live provider validation", () => {
     process.env.SPORTAPI_AI_KEY = "test-key";
     globalThis.fetch = (async () => new Response(JSON.stringify({ fixtures: [
       { id: "bad-home", home_team: "Home", away_team: "Liverpool", datetime: "2026-10-10T12:00:00Z" },
-      { id: "missing-id", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
+      { home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
       { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
