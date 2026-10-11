@@ -1256,7 +1256,8 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       resultsStoreReadable,
       storedResultRecords: results.length,
       targetTeams: targetTeams.length,
-      defaultTeams: LOCKED_80_TEAMS.length,\n      customTeams: targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())),
+      defaultTeams: LOCKED_80_TEAMS.length,
+      customTeams: targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())),
       teamsWithVerifiedHistory,
       savedResultsWithTargetTeam,
       verifiedSamplesByTeam
