@@ -82,6 +82,16 @@ export function mergeFixtureSlates(
     // Bookmaker-protected records returned above are intentionally handled separately.
     if (isIncoming && item.status === "NS" && prev.resultSettled !== true && item.resultSettled !== true) {
       delete merged.finalScore;
+      // Provider adapters use different field names for the same score. Clear
+      // those aliases too so a lower-priority scheduled refresh cannot retain
+      // a stale score that a view might accidentally render.
+      const scoreAliases = merged as Fixture & Record<string, unknown>;
+      delete scoreAliases.homeGoals;
+      delete scoreAliases.awayGoals;
+      delete scoreAliases.homeScore;
+      delete scoreAliases.awayScore;
+      delete scoreAliases.home_score;
+      delete scoreAliases.away_score;
     }
 
     map.set(key, merged);
