@@ -99,7 +99,7 @@ function getCompositeKeyServer(home: string, away: string, date: string): string
 }
 
 // Server Disk Persistence (Zero Data Loss) via server-db.ts
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), "data"));
 const MANIFEST_FILE = path.join(DATA_DIR, "fixtures-manifest.json");
 
 function ensureDataDir() {
@@ -318,13 +318,14 @@ app.post("/api/digest", async (req, res) => {
 
     const client = getGeminiClient();
 
-    // We pass the 80 target teams to Gemini to help map them accurately even with abbreviations
+    // Use the original 80 plus any teams explicitly added by the user.
+    const targetTeams = getTargetTeams();
     const systemPrompt = `You are a bias-free football statistics parser.
 Your task is to ingest a scraped sports payload (HTML or text) and extract match details, physical pitch facts, expected goals (xG), possession, and team circumstances.
 
 Strict constraints:
-1. Identify any match containing at least one of our 80 Target Favourite Teams:
-${LOCKED_80_TEAMS.join(", ")}
+1. Identify any match containing at least one of our managed target teams:
+${targetTeams.join(", ")}
 
 2. Match variations of team names in the payload to our exact target name if possible (e.g. "Napoli" maps to "Napoli", "Inter W" or "Inter Milan Women" maps to "Inter Milan Women", etc.).
 
@@ -436,20 +437,23 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
                 
                 if (!homeTeamName || !awayTeamName) continue;
                 
-                // Match against our locked 80 target teams
-                const isHomeFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === homeTeamName.toLowerCase());
-                const isAwayFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === awayTeamName.toLowerCase());
+                // Match against the original 80 plus explicitly added target teams.
+                const managedTeams = getTargetTeams();
+                const matchedHome = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(homeTeamName));
+                const matchedAway = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(awayTeamName));
+                const isHomeFav = Boolean(matchedHome);
+                const isAwayFav = Boolean(matchedAway);
                 
                 if (isHomeFav || isAwayFav) {
-                  const matchedHome = LOCKED_80_TEAMS.find(t => t.toLowerCase() === homeTeamName.toLowerCase()) || homeTeamName;
-                  const matchedAway = LOCKED_80_TEAMS.find(t => t.toLowerCase() === awayTeamName.toLowerCase()) || awayTeamName;
+                  const canonicalHome = matchedHome || homeTeamName;
+                  const canonicalAway = matchedAway || awayTeamName;
                   
                   fixtures.push({
                     id: `espn-${gameId}`,
                     date: dateString,
                     time,
-                    homeTeam: matchedHome,
-                    awayTeam: matchedAway,
+                    homeTeam: canonicalHome,
+                    awayTeam: canonicalAway,
                     competition: leagueName,
                     source: "espn",
                     sourceConfidence: "unknown",
@@ -481,19 +485,22 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
         const home = extractedTeams[i].name;
         const away = extractedTeams[i + 1].name;
         
-        const isHomeFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === home.toLowerCase());
-        const isAwayFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === away.toLowerCase());
+        const managedTeams = getTargetTeams();
+        const matchedHome = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(home));
+        const matchedAway = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(away));
+        const isHomeFav = Boolean(matchedHome);
+        const isAwayFav = Boolean(matchedAway);
         
         if (isHomeFav || isAwayFav) {
-          const matchedHome = LOCKED_80_TEAMS.find(t => t.toLowerCase() === home.toLowerCase()) || home;
-          const matchedAway = LOCKED_80_TEAMS.find(t => t.toLowerCase() === away.toLowerCase()) || away;
+          const canonicalHome = matchedHome || home;
+          const canonicalAway = matchedAway || away;
           
           fixtures.push({
             id: `espn-regex-${i}-${dateString}`,
             date: dateString,
             time: "17:00",
-            homeTeam: matchedHome,
-            awayTeam: matchedAway,
+            homeTeam: canonicalHome,
+            awayTeam: canonicalAway,
             competition: "League Match",
             source: "espn",
             sourceConfidence: "unknown",
@@ -1256,6 +1263,8 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       sportApiAiKeyConfigured: Boolean(process.env.SPORTAPI_AI_KEY),
       theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
       resultsEndpointConfigured: Boolean(configuredEndpoint),
+      dataDirectoryConfigured: Boolean(process.env.DATA_DIR),
+      dataDirectoryPersistence: process.env.DATA_DIR ? "custom path configured; verify it is a persistent mounted volume" : "default ./data path; may be ephemeral on container/serverless hosts",
       officialResultsEndpointConfigured
     },
     historicalEvidence: {
