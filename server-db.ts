@@ -274,7 +274,7 @@ export function getTargetTeams(): string[] {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     if (!Array.isArray(parsed)) return [...LOCKED_80_TEAMS];
     const cleaned = parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map(v => v.trim());
-    return Array.from(new Map(cleaned.map(team => [team.toLowerCase(), team])).values());
+    return Array.from(new Map([...LOCKED_80_TEAMS, ...cleaned].map(team => [team.toLowerCase(), team])).values());
   } catch { return [...LOCKED_80_TEAMS]; }
 }
 
