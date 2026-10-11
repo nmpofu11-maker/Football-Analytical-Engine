@@ -9,6 +9,7 @@ import * as pdfParseModule from "pdf-parse";
 import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams";
 import { parseBookmakerRawText } from "./src/utils/bookmakerParser";
 import { simulateMatchup } from "./src/utils/footballMath";
+import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { fetchSportApiAiFixtures } from "./src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "./src/services/serverTheRundown";
 import {
@@ -1181,6 +1182,77 @@ app.get("/api/results/verified", (req, res) => {
     } catch(e) {}
   }
   return res.json({ results: [] });
+});
+
+// Read-only, secret-safe evidence readiness report for deployment troubleshooting.
+// Historical result counts and model calibration counts are intentionally reported separately.
+app.get("/api/diagnostics/evidence", (req, res) => {
+  const resultsFile = path.join(DATA_DIR, "db_results.json");
+  let results: any[] = [];
+  let resultsStoreReadable = true;
+  try {
+    if (fs.existsSync(resultsFile)) {
+      const parsed = JSON.parse(fs.readFileSync(resultsFile, "utf-8"));
+      if (Array.isArray(parsed)) results = parsed;
+      else resultsStoreReadable = false;
+    }
+  } catch {
+    resultsStoreReadable = false;
+  }
+
+  const verifiedSamplesByTeam: Record<string, number> = {};
+  for (const team of LOCKED_80_TEAMS) {
+    verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
+  }
+  const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
+  const matrices = getMatrices();
+  const calibratedTeams = Object.entries(matrices)
+    .filter(([, matrix]: [string, any]) => Number(matrix?.sample_size_matches || 0) > 0)
+    .map(([team, matrix]: [string, any]) => ({
+      team,
+      outOfSampleMatches: Number(matrix?.sample_size_matches || 0)
+    }));
+  const configuredEndpoint = String(resultsApiConfig.apiUrl || process.env.RESULTS_API_URL || "").trim();
+  let officialResultsEndpointConfigured = false;
+  try {
+    const host = new URL(configuredEndpoint).hostname.toLowerCase();
+    officialResultsEndpointConfigured =
+      ["api-football.com", "www.api-football.com", "api-sports.io", "v3.football.api-sports.io"].includes(host)
+      || host.endsWith(".api-sports.io");
+  } catch {}
+
+  return res.json({
+    generatedAt: new Date().toISOString(),
+    providers: {
+      apiFootballKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY),
+      sportApiAiKeyConfigured: Boolean(process.env.SPORTAPI_AI_KEY),
+      theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
+      resultsEndpointConfigured: Boolean(configuredEndpoint),
+      officialResultsEndpointConfigured
+    },
+    historicalEvidence: {
+      resultsStoreReadable,
+      storedResultRecords: results.length,
+      targetTeams: LOCKED_80_TEAMS.length,
+      teamsWithVerifiedHistory,
+      verifiedSamplesByTeam
+    },
+    modelReadiness: {
+      teamsWithOutOfSampleCalibration: calibratedTeams.length,
+      calibratedTeams,
+      storedPredictionRecords: getPredictions().length,
+      canGenerateCalibratedPredictions: calibratedTeams.length > 0
+    },
+    backfill: {
+      configured: Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured,
+      maximumDaysPerRequest: 14,
+      note: "Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
+    },
+    storage: {
+      mode: "local-filesystem",
+      persistenceWarning: "Files may be ephemeral on container/serverless deployments unless a persistent volume or external database is configured."
+    }
+  });
 });
 
 app.get("/api/coefficients/history", (req, res) => {
