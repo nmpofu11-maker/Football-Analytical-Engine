@@ -115,13 +115,23 @@ describe("live provider validation", () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ events: [
       { event_id: "bad", event_date: "2026-10-10T12:00:00Z", teams: [{ is_home: true, name: "Home" }, { is_home: false, name: "Liverpool" }] },
       { event_date: "2026-10-10T13:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
-      { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] }
+      { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
+      { event_id: "scheduled-zero", event_date: "2026-10-10T15:00:00Z", status_type: "STATUS_SCHEDULED", score: { score_home: 0, score_away: 0, event_status: "STATUS_SCHEDULED" }, teams: [{ is_home: true, name: "Liverpool" }, { is_home: false, name: "Manchester City" }] },
+      { event_id: "finished", event_date: "2026-10-10T16:00:00Z", status_type: "STATUS_FINAL", score: { score_home: 2, score_away: 1, event_status: "STATUS_FINAL" }, teams: [{ is_home: true, name: "Napoli" }, { is_home: false, name: "Roma" }] }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
       const fixtures = await fetchTheRundownFixtures("2026-10-10");
       assert.ok(fixtures.length >= 1);
       assert.ok(fixtures.every(f => f.homeTeam !== "Home" && f.awayTeam !== "Away" && f.id));
       assert.ok(fixtures.some(f => f.id === "valid"));
+      const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
+      assert.equal(scheduled.homeGoals, undefined);
+      assert.equal(scheduled.awayGoals, undefined);
+      assert.equal(scheduled.resultSettled, false);
+      const finished = fixtures.find(f => f.id === "finished")!;
+      assert.equal(finished.homeGoals, 2);
+      assert.equal(finished.awayGoals, 1);
+      assert.equal(finished.resultSettled, true);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
