@@ -22,6 +22,41 @@ let rateLimitedUntil = 0;
 let consecutiveRateLimits = 0;
 const fixtureCache = new Map<string, { expiresAt: number; fixtures: any[] }>();
 
+type TheRundownCallState = "idle" | "not_configured" | "invalid_request" | "requesting" | "cached" | "success" | "success_empty" | "partial" | "rate_limited" | "http_error" | "request_error";
+
+interface TheRundownCallDiagnostics {
+  state: TheRundownCallState;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastHttpStatus: number | null;
+  lastFixtureCount: number;
+  requestsAttempted: number;
+  successfulResponses: number;
+  lastErrorCode: string | null;
+  cooldownUntil: string | null;
+  lastServedFromCache: boolean;
+}
+
+let providerDiagnostics: TheRundownCallDiagnostics = {
+  state: "idle",
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastHttpStatus: null,
+  lastFixtureCount: 0,
+  requestsAttempted: 0,
+  successfulResponses: 0,
+  lastErrorCode: null,
+  cooldownUntil: null,
+  lastServedFromCache: false
+};
+
+export function getTheRundownProviderDiagnostics() {
+  return {
+    configured: Boolean(process.env.THERUNDOWN_KEY),
+    ...providerDiagnostics
+  };
+}
+
 function validTeamName(value: any): string {
   const name = typeof value === "string" ? value.trim() : "";
   return name && !/^(home|away|team ?[ab]|tbd|unknown|n\/a|none)$/i.test(name) ? name : "";
@@ -30,38 +65,68 @@ function validTeamName(value: any): string {
 export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
   const apiKey = process.env.THERUNDOWN_KEY || "";
   if (!apiKey) {
+    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastErrorCode: "missing_api_key", lastServedFromCache: false };
     console.warn("THERUNDOWN_KEY not configured.");
     return [];
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
+    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastErrorCode: "invalid_date", lastServedFromCache: false };
     console.warn("TheRundown fixture request rejected: invalid date.");
     return [];
   }
 
   const now = Date.now();
   const cached = fixtureCache.get(dateStr);
-  if (cached && cached.expiresAt > now) return cached.fixtures.map(f => ({ ...f }));
+  if (cached && cached.expiresAt > now) {
+    providerDiagnostics = { ...providerDiagnostics, state: "cached", lastServedFromCache: true };
+    return cached.fixtures.map(f => ({ ...f }));
+  }
   if (cached) fixtureCache.delete(dateStr);
 
   if (now < rateLimitedUntil) {
+    providerDiagnostics = {
+      ...providerDiagnostics,
+      state: "rate_limited",
+      lastErrorCode: "http_429",
+      cooldownUntil: new Date(rateLimitedUntil).toISOString(),
+      lastServedFromCache: false
+    };
     console.warn("TheRundown requests paused after HTTP 429 rate limiting.");
     return [];
   }
 
+  providerDiagnostics = {
+    ...providerDiagnostics,
+    state: "requesting",
+    lastAttemptAt: new Date().toISOString(),
+    lastHttpStatus: null,
+    requestsAttempted: 0,
+    successfulResponses: 0,
+    lastErrorCode: null,
+    cooldownUntil: null,
+    lastServedFromCache: false
+  };
+
   const allFixtures: any[] = [];
   let successfulResponses = 0;
+  let requestsAttempted = 0;
+  let lastHttpStatus: number | null = null;
+  let lastErrorCode: string | null = null;
   const ingestedAt = new Date().toISOString();
 
   for (const sport of SOCCER_SPORT_IDS) {
     const url = `https://therundown.io/api/v2/sports/${sport.id}/events/${dateStr}?include=scores+all_periods`;
     try {
+      requestsAttempted += 1;
       const res = await fetch(url, {
         headers: {
           "X-TheRundown-Key": apiKey,
           "Accept": "application/json"
         }
       });
+      lastHttpStatus = res.status;
       if (res.status === 429) {
+        lastErrorCode = "http_429";
         consecutiveRateLimits += 1;
         const exponentialDelay = Math.min(
           MAX_RATE_LIMIT_COOLDOWN_MS,
@@ -74,6 +139,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         break;
       }
       if (!res.ok) {
+        lastErrorCode = `http_${res.status}`;
         console.warn(`TheRundown returned HTTP ${res.status} for ${sport.name}.`);
         continue;
       }
@@ -129,6 +195,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         });
       }
     } catch (err: any) {
+      lastErrorCode = "request_failed";
       console.warn(`TheRundown fetch warning for ${sport.name}:`, err?.message || err);
     }
   }
@@ -147,6 +214,27 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
     }
     if (successfulResponses === SOCCER_SPORT_IDS.length) consecutiveRateLimits = 0;
   }
+
+  const rateLimited = lastErrorCode === "http_429" && rateLimitedUntil > Date.now();
+  const state: TheRundownCallState = rateLimited
+    ? "rate_limited"
+    : successfulResponses === SOCCER_SPORT_IDS.length
+      ? (allFixtures.length ? "success" : "success_empty")
+      : successfulResponses > 0
+        ? "partial"
+        : lastErrorCode?.startsWith("http_") ? "http_error" : "request_error";
+  providerDiagnostics = {
+    ...providerDiagnostics,
+    state,
+    lastSuccessAt: successfulResponses > 0 ? new Date().toISOString() : providerDiagnostics.lastSuccessAt,
+    lastHttpStatus,
+    lastFixtureCount: allFixtures.length,
+    requestsAttempted,
+    successfulResponses,
+    lastErrorCode,
+    cooldownUntil: rateLimitedUntil > Date.now() ? new Date(rateLimitedUntil).toISOString() : null,
+    lastServedFromCache: false
+  };
 
   return allFixtures;
 }
