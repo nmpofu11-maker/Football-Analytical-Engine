@@ -167,7 +167,16 @@ function generatePreMatchPredictions(fixtures: any[]) {
     const status = String(f.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
     const upcomingStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"]);
     if (!upcomingStatuses.has(status)) continue;
-    const kickoffMs = Date.parse(`${f.date}T${f.time || "00:00"}:00Z`);
+    const dateValue = String(f.date ?? "").trim();
+    const timeValue = String(f.time ?? "00:00").trim();
+    // Provider records may supply either a date-only field plus HH:mm, or a full ISO timestamp.
+    // Avoid appending ":00Z" to times that already include seconds or a timezone.
+    const kickoffInput = /^\\d{4}-\\d{2}-\\d{2}T/i.test(dateValue)
+      ? dateValue
+      : /^\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})?$/i.test(timeValue)
+        ? `${dateValue}T${timeValue}${/(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(timeValue) ? "" : "Z"}`
+        : "";
+    const kickoffMs = kickoffInput ? Date.parse(kickoffInput) : Number.NaN;
     // Do not create a new pre-match prediction for a fixture whose kickoff has passed.
     if (!Number.isFinite(kickoffMs) || kickoffMs <= Date.now()) continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
