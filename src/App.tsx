@@ -2679,10 +2679,11 @@ export default function App() {
                       {simulationResult.evidenceGate === "blocked" && (
                         <div role="status" className="bg-amber-50 border border-amber-300 text-amber-950 p-5 rounded-xl">
                           <h4 className="font-bold text-sm">Baseline-only simulation — verified team history unavailable</h4>
-                          <p className="text-xs mt-2">The selected teams do not yet have sufficient verified settled results in the engine's history store. The figures below are shown only so you can inspect the Poisson model mechanics; they are generated from baseline priors and must not be treated as match-specific forecasts or betting advice.</p>
+                          <p className="text-xs mt-2">The selected teams do not yet have sufficient verified settled results in the engine's history store. Score estimates and outcome percentages are withheld because these teams lack sufficient verified history and out-of-sample calibration. No match-specific forecast is available.</p>
                           <p className="text-xs mt-2">Historical form, lineups, injuries, standings, and match statistics are not automatically loaded into this exploratory simulator. Verified result ingestion and out-of-sample calibration are still required before a forecast can be considered evidence-backed.</p>
                         </div>
                       )}
+                      {simulationResult.evidenceGate !== "blocked" ? (
                       <>
                       {/* Main scoreboard estimate */}
                       <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-6 border-b border-[#F1F5F9] pb-6">
@@ -2743,6 +2744,13 @@ export default function App() {
                         </div>
                       </div>
 
+                      </>
+                      ) : (
+                        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
+                          <h4 className="font-bold text-sm">Prediction unavailable — insufficient verified evidence</h4>
+                          <p className="mt-2 text-xs">The engine will not display a scoreline or win/draw/loss percentages for this fixture until both teams have usable out-of-sample calibration evidence.</p>
+                        </div>
+                      )}
                       {/* Transparent analytical log matching 10 rules */}
                       <div>
                         <span className="text-xs font-bold text-[#334155] uppercase tracking-wider block mb-2">Model assumptions and evidence gaps</span>
