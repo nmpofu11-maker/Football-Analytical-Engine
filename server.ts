@@ -1220,8 +1220,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
-  const normalizeTargetName = (value: unknown) => typeof value === "string"
-    ? value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "").replace(/[^a-z0-9]/g, "")
+  const normalizeTargetName = (value: unknown) => typeof value === "string"    ? value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "").replace(/[^a-z0-9]/g, "")
     : "";
   const targetTeamNames = new Set(targetTeams.map(normalizeTargetName));
   const savedResultsWithTargetTeam = results.filter(record => {
@@ -1256,7 +1255,8 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     historicalEvidence: {
       resultsStoreReadable,
       storedResultRecords: results.length,
-      targetTeams: targetTeams.length,\n      defaultTeams: LOCKED_80_TEAMS.length,\n      customTeams: targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())),
+      targetTeams: targetTeams.length,
+      defaultTeams: LOCKED_80_TEAMS.length,\n      customTeams: targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())),
       teamsWithVerifiedHistory,
       savedResultsWithTargetTeam,
       verifiedSamplesByTeam
