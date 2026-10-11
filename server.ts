@@ -1220,17 +1220,17 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
-  const targetTeamNames = new Set(targetTeams.map(team => team.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]/g, "")));
+  const normalizeTargetName = (value: unknown) => typeof value === "string"
+    ? value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "").replace(/[^a-z0-9]/g, "")
+    : "";
+  const targetTeamNames = new Set(targetTeams.map(normalizeTargetName));
   const savedResultsWithTargetTeam = results.filter(record => {
     if (!record || typeof record !== "object") return false;
-    const normalize = (value: unknown) => typeof value === "string"
-      ? value.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/\\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\\b/gi, "").replace(/[^a-z0-9]/g, "")
-      : "";
-    return targetTeamNames.has(normalize(record.homeTeam)) || targetTeamNames.has(normalize(record.awayTeam));
+    return targetTeamNames.has(normalizeTargetName(record.homeTeam)) || targetTeamNames.has(normalizeTargetName(record.awayTeam));
   }).length;
   const matrices = getMatrices();
   const calibratedTeams = Object.entries(matrices)
-    .filter(([, matrix]: [string, any]) => Number(matrix?.sample_size_matches || 0) > 0)
+    .filter(([team, matrix]: [string, any]) => targetTeamNames.has(normalizeTargetName(team)) && Number(matrix?.sample_size_matches || 0) > 0)
     .map(([team, matrix]: [string, any]) => ({
       team,
       outOfSampleMatches: Number(matrix?.sample_size_matches || 0)
