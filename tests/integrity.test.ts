@@ -274,7 +274,7 @@ describe("scheduled fixture merge integrity", () => {
     const existing = [{
       id: "sportapi-1", date: "2026-10-12", time: "18:00",
       homeTeam: "Liverpool", awayTeam: "Manchester City", competition: "Premier League",
-      status: "NS" as const, finalScore: { home: 0, away: 0 }, resultSettled: false,
+      status: "NS" as const, finalScore: { home: 0, away: 0 }, homeGoals: 0, awayGoals: 0, resultSettled: false,
       source: "sportapi-ai", sourceConfidence: "verified" as const, ingestedAt: "2026-10-11T08:00:00.000Z"
     }];
     const incoming = [{
@@ -287,6 +287,8 @@ describe("scheduled fixture merge integrity", () => {
     assert.equal(merged.length, 1);
     assert.equal(merged[0].status, "NS");
     assert.equal(merged[0].finalScore, undefined);
+    assert.equal((merged[0] as any).homeGoals, undefined);
+    assert.equal((merged[0] as any).awayGoals, undefined);
   });
 
   it("preserves a result explicitly marked as settled", () => {
