@@ -48,17 +48,38 @@ const PORT = 3000;
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
   const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method.toUpperCase());
-  if (!mutating || !req.path.startsWith("/api/") || req.path === "/api/results/push-scores") return next();
+  if (!mutating || !req.path.startsWith("/api/")) return next();
 
-  const configuredKey = process.env.ADMIN_API_KEY;
-  if (!configuredKey) {
-    return res.status(503).json({ error: "Administrative API is disabled until the ADMIN_API_KEY secret is configured." });
+  // The score-push webhook uses its own dedicated secret in its route handler.
+  // All write routes, including that webhook, must still fail closed when the
+  // runtime cannot verify durable storage; otherwise a successful write may
+  // disappear after a Cloud Run instance restart or revision replacement.
+  const isScoreWebhook = req.path === "/api/results/push-scores";
+  if (!isScoreWebhook) {
+    const configuredKey = process.env.ADMIN_API_KEY;
+    if (!configuredKey) {
+      return res.status(503).json({ error: "Administrative API is disabled until the ADMIN_API_KEY secret is configured." });
+    }
+    const providedKey = req.header("x-admin-api-key") || "";
+    const expected = Buffer.from(configuredKey);
+    const provided = Buffer.from(providedKey);
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+      return res.status(401).json({ error: "A valid administrative API key is required for write operations." });
+    }
   }
-  const providedKey = req.header("x-admin-api-key") || "";
-  const expected = Buffer.from(configuredKey);
-  const provided = Buffer.from(providedKey);
-  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
-    return res.status(401).json({ error: "A valid administrative API key is required for write operations." });
+
+  const storageHealth = inspectStoragePath();
+  if (!storageHealth.persistenceVerified) {
+    return res.status(503).json({
+      error: "Write operations are disabled because durable storage is not verified for this runtime.",
+      code: "PERSISTENT_STORAGE_NOT_VERIFIED",
+      storage: {
+        writable: storageHealth.writable,
+        mode: storageHealth.mountedStorageDetected ? "mounted-filesystem" : "local-filesystem",
+        mountType: storageHealth.mountType,
+        configuredPath: storageHealth.configuredPath
+      }
+    });
   }
   return next();
 });
