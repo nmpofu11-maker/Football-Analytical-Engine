@@ -12,6 +12,9 @@ For a Cloud Run service you control:
 5. Set DATA_DIR=/mnt/persistent-data and deploy.
 6. Check /api/diagnostics/evidence. Confirm storage.writable and storage.persistenceVerified are true.
 7. Record historicalEvidence.storedResultRecords, restart or deploy a new revision, and check the count and known results again.
+8. Because the current application stores state in JSON files, use a single Cloud Run instance while validating this setup to reduce concurrent-writer conflicts.
+
+Cloud Storage FUSE is durable object storage, not a transactional database or a full substitute for a POSIX database filesystem. For multiple instances or concurrent writes, migrate application state to a managed database (for example Cloud SQL or Firestore) instead of relying on shared JSON files. A Filestore/NFS mount may be appropriate when the application must retain filesystem semantics, but it requires additional network and service configuration.
 
 A managed AI Studio preview may not expose volume configuration. If so, use a Cloud Run service you control for durable operation. A custom DATA_DIR by itself does not prove persistence.
 
