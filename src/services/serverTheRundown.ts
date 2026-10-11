@@ -17,7 +17,7 @@ export const SOCCER_SPORT_IDS = [
 
 const BASE_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
 const MAX_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
-const SUCCESS_CACHE_TTL_MS = 2 * 60_000;
+const SUCCESS_CACHE_TTL_MS = 5 * 60_000;
 let rateLimitedUntil = 0;
 let consecutiveRateLimits = 0;
 const fixtureCache = new Map<string, { expiresAt: number; fixtures: any[] }>();
