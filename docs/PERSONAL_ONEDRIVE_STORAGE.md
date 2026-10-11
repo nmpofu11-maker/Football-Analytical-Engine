@@ -22,7 +22,7 @@ The Microsoft Graph client in `src/services/oneDriveStorage.ts` provides delegat
 
 1. Send an authenticated `POST /api/onedrive/auth/start` with `x-admin-api-key: <ADMIN_API_KEY>`. It returns an `authorizationUrl`; open that URL in your browser.
 2. Sign in with the personal Microsoft account that owns the OneDrive you want to use and consent to the requested delegated permissions.
-3. Microsoft redirects to `/api/onedrive/auth/callback`. The callback validates one-time OAuth state and returns a refresh token once. Do not paste it into chat, commit it to GitHub, or share a screenshot.
+3. Microsoft redirects to `/api/onedrive/auth/callback`. The callback validates one-time OAuth state and the PKCE verifier, then returns a refresh token once. Do not paste it into chat, commit it to GitHub, or share a screenshot.
 4. Immediately store the returned `refreshToken` as the secret `ONEDRIVE_REFRESH_TOKEN` in your deployment secret manager, then redeploy. The token is not persisted by the callback handler.
 5. Microsoft may return a rotated refresh token when one is used. This implementation keeps the latest token in memory for the current process; keep the bootstrap secret protected and be prepared to re-authorize/replace it if Microsoft revokes or expires it. Never log OAuth tokens.
 
