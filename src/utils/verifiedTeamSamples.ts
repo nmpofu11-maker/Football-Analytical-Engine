@@ -10,7 +10,17 @@ type VerifiedResultRecord = {
   verifiedAt?: unknown;
 };
 
-const TRUSTED_PROVIDER_PATTERN = /api[- ]?football|sportapi|sportmonks|football[- ]?data|rundown|pitchapi|sportdb/i;
+const TRUSTED_PROVIDER_SOURCES = new Set([
+  "apifootball",
+  "sportapi",
+  "sportapiai",
+  "sportmonks",
+  "footballdata",
+  "footballdataorg",
+  "therundown",
+  "pitchapi",
+  "sportdb"
+]);
 
 /**
  * Counts distinct, settled result records returned by the server's verified-results
@@ -33,8 +43,10 @@ export function getVerifiedTeamSampleSize(records: unknown, teamName: string, no
     const score = typeof record.actualScore === "string" ? record.actualScore.trim() : "";
     if (!/^\d+\s*-\s*\d+$/.test(score)) continue;
 
-    const source = typeof record.source === "string" ? record.source.trim() : "";
-    if (!TRUSTED_PROVIDER_PATTERN.test(source)) continue;
+    const source = typeof record.source === "string"
+      ? record.source.toLowerCase().replace(/[^a-z0-9]/g, "")
+      : "";
+    if (!TRUSTED_PROVIDER_SOURCES.has(source)) continue;
 
     const verifiedAt = typeof record.verifiedAt === "string" ? Date.parse(record.verifiedAt) : Number.NaN;
     if (!Number.isFinite(verifiedAt) || verifiedAt > nowMs) continue;
