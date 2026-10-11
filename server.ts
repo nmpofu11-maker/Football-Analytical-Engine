@@ -164,6 +164,21 @@ function generatePreMatchPredictions(fixtures: any[]) {
   let added = 0;
   for (const f of fixtures) {
     if (f.sourceConfidence === "unknown") continue;
+    const status = String(f.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+    const upcomingStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
+    if (!upcomingStatuses.has(status)) continue;
+    const dateValue = String(f.date ?? "").trim();
+    const timeValue = String(f.time ?? "00:00").trim();
+    // Provider records may supply either a date-only field plus HH:mm, or a full ISO timestamp.
+    // Avoid appending ":00Z" to times that already include seconds or a timezone.
+    const kickoffInput = /^\d{4}-\d{2}-\d{2}T/i.test(dateValue)
+      ? dateValue
+      : /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/i.test(timeValue)
+        ? `${dateValue}T${timeValue}${/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timeValue) ? "" : "Z"}`
+        : "";
+    const kickoffMs = kickoffInput ? Date.parse(kickoffInput) : Number.NaN;
+    // Do not create a new pre-match prediction for a fixture whose kickoff has passed.
+    if (!Number.isFinite(kickoffMs) || kickoffMs <= Date.now()) continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
     const fixtureId = String(f.id ?? "");
     const alreadyExists = existingKeys.has(matchKey) || existingKeys.has(fixtureId);
@@ -238,14 +253,25 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
     const useIncoming = incomingItem && (nextPriority > prevPriority || (nextPriority === prevPriority && nextIsNewer));
     const base = useIncoming ? prev : item;
     const overlay = useIncoming ? item : prev;
-    map.set(key, {
+    const merged = {
       ...base,
       ...Object.fromEntries(Object.entries(overlay).filter(([k,v]) => v !== undefined && v !== null)),
       source: useIncoming ? item.source : prev.source,
       sourceConfidence: useIncoming ? (item.sourceConfidence || prev.sourceConfidence) : prev.sourceConfidence,
       ingestedAt: useIncoming ? (item.ingestedAt || prev.ingestedAt) : prev.ingestedAt,
       isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
-    });
+    };
+    // A newer upcoming-provider record must clear stale placeholder scores, but never erase a settled result.
+    const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+    const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"].includes(incomingStatus);
+    if (incomingItem && useIncoming && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
+      delete merged.homeGoals;
+      delete merged.awayGoals;
+      delete merged.finalScore;
+      delete merged.home_score;
+      delete merged.away_score;
+    }
+    map.set(key, merged);
   };
   for (const item of existing) put(item, false);
   for (const item of incoming) put(item, true);
@@ -720,14 +746,18 @@ app.post("/api/results/push-scores", (req, res) => {
       });
 
       if (matchedScore) {
+        const status = String(matchedScore.status || "").trim().toUpperCase();
+        const finalStatuses = ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"];
+        const rawHome = matchedScore.homeGoals ?? matchedScore.homeScore;
+        const rawAway = matchedScore.awayGoals ?? matchedScore.awayScore;
+        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+        if (!finalStatuses.includes(status) || !Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) return match;
         updatedCount++;
         return {
           ...match,
-          status: matchedScore.status || "FT",
-          finalScore: {
-            home: Number(matchedScore.homeGoals ?? matchedScore.homeScore ?? 0),
-            away: Number(matchedScore.awayGoals ?? matchedScore.awayScore ?? 0)
-          },
+          status: "FT",
+          finalScore: { home, away },
           resultSettled: true,
           settledAt: new Date().toISOString(),
           resultSource: matchedScore.source || "custom-results-api"
@@ -848,9 +878,12 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
           return key === matchKey;
         });
 
-        if (found && (found.status === "FT" || found.status === "FINISHED" || found.homeGoals !== undefined || found.home_score !== undefined)) {
-          const hG = Number(found.homeGoals ?? found.home_score ?? found.homeScore ?? 0);
-          const aG = Number(found.awayGoals ?? found.away_score ?? found.awayScore ?? 0);
+        if (found && ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"].includes(String(found.status || "").trim().toUpperCase())) {
+          const rawHome = found.homeGoals ?? found.home_score ?? found.homeScore;
+          const rawAway = found.awayGoals ?? found.away_score ?? found.awayScore;
+          const hG = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+          const aG = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+          if (!Number.isSafeInteger(hG) || hG < 0 || !Number.isSafeInteger(aG) || aG < 0) continue;
           
           updatedManifest[i] = {
             ...match,
@@ -881,11 +914,16 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
         getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
         (r.resultSettled === true || r.status === "FT")
       );
-      if (found && found.homeGoals !== undefined && found.awayGoals !== undefined) {
+      if (found) {
+        const rawHome = found.homeGoals;
+        const rawAway = found.awayGoals;
+        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+        if (!Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) continue;
         updatedManifest[i] = {
           ...match,
           status: "FT",
-          finalScore: { home: Number(found.homeGoals), away: Number(found.awayGoals) },
+          finalScore: { home, away },
           resultSettled: true,
           settledAt: new Date().toISOString(),
           resultSource: found.source || "trusted-provider"

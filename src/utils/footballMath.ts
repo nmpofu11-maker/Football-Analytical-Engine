@@ -94,15 +94,20 @@ export function simulateMatchup(
   homeXG = Math.max(0.1, homeXG);
   awayXG = Math.max(0.1, awayXG);
   const probabilities = simulatePoissonOutcome(homeXG, awayXG, volatility);
+  const [homeWinProbability, drawProbability, awayWinProbability] = toWholePercentages([
+    probabilities.homeWin,
+    probabilities.draw,
+    probabilities.awayWin
+  ]);
 
   return {
     homeExpectedGoals: Number(homeXG.toFixed(2)),
     awayExpectedGoals: Number(awayXG.toFixed(2)),
     homeScore: Math.round(homeXG),
     awayScore: Math.round(awayXG),
-    homeWinProbability: Math.round(probabilities.homeWin * 100),
-    drawProbability: Math.round(probabilities.draw * 100),
-    awayWinProbability: Math.round(probabilities.awayWin * 100),
+    homeWinProbability,
+    drawProbability,
+    awayWinProbability,
     reasons,
     confidencePercentage: null,
     homeConfidenceLower: null,
@@ -149,6 +154,21 @@ function simulatePoissonOutcome(lambdaHome: number, lambdaAway: number, volatili
 
   const total = homeWin + draw + awayWin;
   return { homeWin: homeWin / total, draw: draw / total, awayWin: awayWin / total };
+}
+
+/** Round a probability distribution without allowing displayed percentages to total 99% or 101%. */
+function toWholePercentages(probabilities: number[]): number[] {
+  const raw = probabilities.map((probability) => Math.max(0, probability) * 100);
+  const rounded = raw.map(Math.floor);
+  let remaining = 100 - rounded.reduce((sum, value) => sum + value, 0);
+  const priority = raw
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((a, b) => b.fraction - a.fraction);
+
+  for (let i = 0; remaining > 0 && i < priority.length; i++, remaining--) {
+    rounded[priority[i].index] += 1;
+  }
+  return rounded;
 }
 
 function factorial(n: number): number {

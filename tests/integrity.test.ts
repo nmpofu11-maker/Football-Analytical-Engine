@@ -37,6 +37,33 @@ describe("integrity guards", () => {
     assert.ok(parsed.unparsedLines.length >= 1);
   });
 
+  it("does not apply home advantage when derby context is unknown", () => {
+    const coefficients = { home_advantage_multiplier: 1.12, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 };
+    const unknown = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    const knownNonDerby = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      false, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    assert.ok(unknown.reasons.some(reason => reason.includes("Derby status unknown")));
+    assert.ok(!unknown.reasons.some(reason => reason.includes("Home-advantage coefficient applied")));
+    assert.ok(knownNonDerby.reasons.some(reason => reason.includes("Home-advantage coefficient applied")));
+    assert.ok(unknown.homeExpectedGoals < knownNonDerby.homeExpectedGoals);
+  });
+
+  it("keeps displayed outcome probabilities between 0 and 100 and totaling exactly 100", () => {
+    const coefficients = { home_advantage_multiplier: 1.08, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 };
+    const result = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      false, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    const percentages = [result.homeWinProbability, result.drawProbability, result.awayWinProbability];
+    assert.equal(percentages.reduce((sum, value) => sum + value, 0), 100);
+    assert.ok(percentages.every(value => Number.isInteger(value) && value >= 0 && value <= 100));
+  });
+
   it("does not report heuristic confidence from sample counts", () => {
     const result = simulateMatchup(
       "Napoli", "FC Nantes",
@@ -80,15 +107,32 @@ describe("live provider validation", () => {
       { id: "bad-home", home_team: "Home", away_team: "Liverpool", datetime: "2026-10-10T12:00:00Z" },
       { home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
       { id: "missing-kickoff", home_team: "Napoli", away_team: "Roma" },
-      { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" }
+      { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z", league: { id: 39, name: "Premier League" } },
+      { id: "missing-competition", home_team: "Brighton", away_team: "West Ham", datetime: "2026-10-10T13:30:00Z" },
+      { id: "scheduled-zero", home_team: "Liverpool", away_team: "Manchester City", datetime: "2026-10-10T15:00:00Z", status: "SCHEDULED", home_score: 0, away_score: 0, league: { id: 39, name: "Premier League" } },
+      { id: "finished", home_team: "Napoli", away_team: "Roma", datetime: "2026-10-10T18:00:00Z", status: "FT", home_score: 2, away_score: 1, competition: { id: 135, name: "Serie A" } }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
       const fixtures = await fetchSportApiAiFixtures("2026-10-10");
-      assert.equal(fixtures.length, 1);
+      assert.equal(fixtures.length, 3);
       assert.equal(fixtures[0].id, "valid");
       assert.equal(fixtures[0].homeTeam, "Arsenal");
       assert.equal(fixtures[0].awayTeam, "Chelsea");
       assert.equal(fixtures[0].sourceConfidence, "verified");
+      assert.equal(fixtures[0].competition, "Premier League");
+      assert.ok(!fixtures.some(f => f.id === "missing-competition"));
+      assert.ok(fixtures.every(f => f.competition && f.competition !== "Competition unavailable"));
+      const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
+      assert.equal(scheduled.competition, "Premier League");
+      assert.equal(scheduled.status, "NS");
+      assert.equal(scheduled.homeGoals, undefined);
+      assert.equal(scheduled.awayGoals, undefined);
+      assert.equal(scheduled.resultSettled, false);
+      const finished = fixtures.find(f => f.id === "finished")!;
+      assert.equal(finished.competition, "Serie A");
+      assert.equal(finished.homeGoals, 2);
+      assert.equal(finished.awayGoals, 1);
+      assert.equal(finished.resultSettled, true);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
@@ -103,13 +147,47 @@ describe("live provider validation", () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ events: [
       { event_id: "bad", event_date: "2026-10-10T12:00:00Z", teams: [{ is_home: true, name: "Home" }, { is_home: false, name: "Liverpool" }] },
       { event_date: "2026-10-10T13:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
-      { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] }
+      { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
+      { event_id: "scheduled-zero", event_date: "2026-10-10T15:00:00Z", status_type: "STATUS_SCHEDULED", score: { score_home: 0, score_away: 0, event_status: "STATUS_SCHEDULED" }, teams: [{ is_home: true, name: "Liverpool" }, { is_home: false, name: "Manchester City" }] },
+      { event_id: "finished", event_date: "2026-10-10T16:00:00Z", status_type: "STATUS_FINAL", score: { score_home: 2, score_away: 1, event_status: "STATUS_FINAL" }, teams: [{ is_home: true, name: "Napoli" }, { is_home: false, name: "Roma" }] }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
       const fixtures = await fetchTheRundownFixtures("2026-10-10");
       assert.ok(fixtures.length >= 1);
       assert.ok(fixtures.every(f => f.homeTeam !== "Home" && f.awayTeam !== "Away" && f.id));
       assert.ok(fixtures.some(f => f.id === "valid"));
+      const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
+      assert.equal(scheduled.status, "NS");
+      assert.equal(scheduled.homeGoals, undefined);
+      assert.equal(scheduled.awayGoals, undefined);
+      assert.equal(scheduled.resultSettled, false);
+      const finished = fixtures.find(f => f.id === "finished")!;
+      assert.equal(finished.homeGoals, 2);
+      assert.equal(finished.awayGoals, 1);
+      assert.equal(finished.resultSettled, true);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
+      else process.env.THERUNDOWN_KEY = oldKey;
+    }
+  });
+
+  it("backs off after TheRundown rate limiting instead of calling every competition", async () => {
+    const oldKey = process.env.THERUNDOWN_KEY;
+    const oldFetch = globalThis.fetch;
+    let calls = 0;
+    process.env.THERUNDOWN_KEY = "test-key";
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("rate limited", { status: 429 });
+    }) as typeof fetch;
+    try {
+      const fixtures = await fetchTheRundownFixtures("2026-10-10");
+      assert.deepEqual(fixtures, []);
+      assert.equal(calls, 1);
+      const duringCooldown = await fetchTheRundownFixtures("2026-10-10");
+      assert.deepEqual(duringCooldown, []);
+      assert.equal(calls, 1);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
