@@ -1069,6 +1069,7 @@ app.post("/api/results/backfill", async (req, res) => {
   }
 
   const existingKeys = new Set(resultsList.map((r: any) => String(r.matchKey || "")).filter(Boolean));
+  checkAndResetResultsApiQuota();
   let fetched = 0;
   let imported = 0;
   let skipped = 0;
