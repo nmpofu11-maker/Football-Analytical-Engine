@@ -37,6 +37,22 @@ describe("integrity guards", () => {
     assert.ok(parsed.unparsedLines.length >= 1);
   });
 
+  it("does not apply home advantage when derby context is unknown", () => {
+    const coefficients = { home_advantage_multiplier: 1.12, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 };
+    const unknown = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    const knownNonDerby = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      false, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    assert.ok(unknown.reasons.some(reason => reason.includes("Derby status unknown")));
+    assert.ok(!unknown.reasons.some(reason => reason.includes("Home-advantage coefficient applied")));
+    assert.ok(knownNonDerby.reasons.some(reason => reason.includes("Home-advantage coefficient applied")));
+    assert.ok(unknown.homeExpectedGoals < knownNonDerby.homeExpectedGoals);
+  });
+
   it("does not report heuristic confidence from sample counts", () => {
     const result = simulateMatchup(
       "Napoli", "FC Nantes",
