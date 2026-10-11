@@ -140,6 +140,29 @@ describe("live provider validation", () => {
     }
   });
 
+  it("downgrades a future SportAPI.ai fixture incorrectly marked final with 0-0", async () => {
+    const oldKey = process.env.SPORTAPI_AI_KEY;
+    const oldFetch = globalThis.fetch;
+    const future = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const date = future.toISOString().slice(0, 10);
+    process.env.SPORTAPI_AI_KEY = "test-key";
+    globalThis.fetch = (async () => new Response(JSON.stringify({ fixtures: [
+      { id: "future-final", home_team: "Liverpool", away_team: "Manchester City", datetime: future.toISOString(), status: "FT", home_score: 0, away_score: 0, league: { name: "Premier League" } }
+    ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    try {
+      const fixtures = await fetchSportApiAiFixtures(date);
+      assert.equal(fixtures.length, 1);
+      assert.equal(fixtures[0].status, "NS");
+      assert.equal(fixtures[0].homeGoals, undefined);
+      assert.equal(fixtures[0].awayGoals, undefined);
+      assert.equal(fixtures[0].resultSettled, false);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
+      else process.env.SPORTAPI_AI_KEY = oldKey;
+    }
+  });
+
   it("rejects TheRundown events with missing teams or event identifiers", async () => {
     const oldKey = process.env.THERUNDOWN_KEY;
     const oldFetch = globalThis.fetch;
