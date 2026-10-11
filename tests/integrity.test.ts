@@ -8,6 +8,7 @@ import { isValidIsoDate } from "../src/utils/isoDate";
 import { simulateMatchup } from "../src/utils/footballMath";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "../src/services/serverSportApiAi";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics, SOCCER_SPORT_IDS } from "../src/services/serverTheRundown";
+import { createOneDriveAuthorization, consumeOneDriveOAuthState, getOneDriveStorageDiagnostics } from "../src/services/oneDriveStorage";
 
 describe("verified historical sample provenance", () => {
   it("counts only distinct settled results from recognized providers", () => {
@@ -408,5 +409,46 @@ describe("ISO calendar date validation", () => {
     assert.equal(isValidIsoDate("2026-1-01"), false);
     assert.equal(isValidIsoDate(""), false);
     assert.equal(isValidIsoDate(null), false);
+  });
+});
+
+
+describe("personal OneDrive OAuth bootstrap", () => {
+  it("creates an authorization URL for personal Microsoft accounts and consumes state only once", () => {
+    const original = {
+      clientId: process.env.ONEDRIVE_CLIENT_ID,
+      clientSecret: process.env.ONEDRIVE_CLIENT_SECRET,
+      redirectUri: process.env.ONEDRIVE_REDIRECT_URI,
+      refreshToken: process.env.ONEDRIVE_REFRESH_TOKEN,
+    };
+    try {
+      process.env.ONEDRIVE_CLIENT_ID = "test-client-id";
+      process.env.ONEDRIVE_CLIENT_SECRET = "test-client-secret";
+      process.env.ONEDRIVE_REDIRECT_URI = "https://example.test/api/onedrive/auth/callback";
+      delete process.env.ONEDRIVE_REFRESH_TOKEN;
+      const result = createOneDriveAuthorization();
+      const url = new URL(result.authorizationUrl);
+      assert.equal(url.hostname, "login.microsoftonline.com");
+      assert.equal(url.pathname, "/consumers/oauth2/v2.0/authorize");
+      assert.equal(url.searchParams.get("client_id"), "test-client-id");
+      assert.equal(url.searchParams.get("redirect_uri"), "https://example.test/api/onedrive/auth/callback");
+      assert.match(url.searchParams.get("scope") || "", /Files.ReadWrite/);
+      assert.match(url.searchParams.get("scope") || "", /offline_access/);
+      const state = url.searchParams.get("state") || "";
+      assert.equal(consumeOneDriveOAuthState(state), true);
+      assert.equal(consumeOneDriveOAuthState(state), false);
+      assert.equal(result.expiresInSeconds, 600);
+    } finally {
+      if (original.clientId === undefined) delete process.env.ONEDRIVE_CLIENT_ID; else process.env.ONEDRIVE_CLIENT_ID = original.clientId;
+      if (original.clientSecret === undefined) delete process.env.ONEDRIVE_CLIENT_SECRET; else process.env.ONEDRIVE_CLIENT_SECRET = original.clientSecret;
+      if (original.redirectUri === undefined) delete process.env.ONEDRIVE_REDIRECT_URI; else process.env.ONEDRIVE_REDIRECT_URI = original.redirectUri;
+      if (original.refreshToken === undefined) delete process.env.ONEDRIVE_REFRESH_TOKEN; else process.env.ONEDRIVE_REFRESH_TOKEN = original.refreshToken;
+    }
+  });
+
+  it("does not claim durable OneDrive storage from configuration alone", () => {
+    const diagnostics = getOneDriveStorageDiagnostics();
+    assert.equal(diagnostics.provider, "onedrive-graph");
+    assert.equal(diagnostics.durableStorageVerified, false);
   });
 });
