@@ -80,7 +80,8 @@ describe("live provider validation", () => {
       { id: "bad-home", home_team: "Home", away_team: "Liverpool", datetime: "2026-10-10T12:00:00Z" },
       { home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
       { id: "missing-kickoff", home_team: "Napoli", away_team: "Roma" },
-      { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z" },
+      { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z", league: { id: 39, name: "Premier League" } },
+      { id: "missing-competition", home_team: "Brighton", away_team: "West Ham", datetime: "2026-10-10T13:30:00Z" },
       { id: "scheduled-zero", home_team: "Liverpool", away_team: "Manchester City", datetime: "2026-10-10T15:00:00Z", status: "SCHEDULED", home_score: 0, away_score: 0, league: { id: 39, name: "Premier League" } },
       { id: "finished", home_team: "Napoli", away_team: "Roma", datetime: "2026-10-10T18:00:00Z", status: "FT", home_score: 2, away_score: 1, competition: { id: 135, name: "Serie A" } }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
@@ -91,6 +92,9 @@ describe("live provider validation", () => {
       assert.equal(fixtures[0].homeTeam, "Arsenal");
       assert.equal(fixtures[0].awayTeam, "Chelsea");
       assert.equal(fixtures[0].sourceConfidence, "verified");
+      assert.equal(fixtures[0].competition, "Premier League");
+      assert.ok(!fixtures.some(f => f.id === "missing-competition"));
+      assert.ok(fixtures.every(f => f.competition && f.competition !== "Competition unavailable"));
       const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
       assert.equal(scheduled.competition, "Premier League");
       assert.equal(scheduled.status, "NS");
