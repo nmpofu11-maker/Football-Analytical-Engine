@@ -64,6 +64,29 @@ describe("integrity guards", () => {
     assert.ok(percentages.every(value => Number.isInteger(value) && value >= 0 && value <= 100));
   });
 
+  it("blocks displayed prediction estimates when either team has no verified historical sample", () => {
+    const coefficients = { home_advantage_multiplier: 1, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 };
+    const missingSamples = simulateMatchup(
+      "Cardiff Metropolitan", "Barry Town United",
+      coefficients, coefficients, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, 0, 0
+    );
+    const oneTeamMissing = simulateMatchup(
+      "Cardiff Metropolitan", "Barry Town United",
+      coefficients, coefficients, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, 8, 0
+    );
+    const bothHaveSamples = simulateMatchup(
+      "Cardiff Metropolitan", "Barry Town United",
+      coefficients, coefficients, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, 8, 6
+    );
+    assert.equal(missingSamples.evidenceGate, "blocked");
+    assert.equal(oneTeamMissing.evidenceGate, "blocked");
+    assert.equal(bothHaveSamples.evidenceGate, "open");
+    assert.ok(missingSamples.reasons.some(reason => reason.includes("Prediction blocked")));
+  });
+
   it("does not report heuristic confidence from sample counts", () => {
     const result = simulateMatchup(
       "Napoli", "FC Nantes",
