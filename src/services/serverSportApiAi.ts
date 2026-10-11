@@ -106,6 +106,9 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const hasUsableScore = validScores && (isFinished || liveStatuses.has(rawStatus));
       const competitionCandidates = [f.competition, f.league, f.tournament, f.competition_name, f.league_name, f.tournament_name, f.competition?.name, f.league?.name, f.tournament?.name, f.competition?.competition_name, f.league?.league_name, f.tournament?.tournament_name, f.competition?.title, f.league?.title, f.tournament?.title];
       const competition = competitionCandidates.find((value) => typeof value === "string" && value.trim())?.trim() || competitionCandidates.find((value) => value && typeof value === "object")?.name?.trim?.() || "";
+      // A fixture without competition metadata is incomplete; don't label it verified
+      // or leak a placeholder label into the user's trusted fixture slate.
+      if (!competition) continue;
 
       fixtures.push({
         id: String(id),
@@ -113,7 +116,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         time,
         homeTeam: home,
         awayTeam: away,
-        competition: competition || "Competition unavailable",
+        competition,
         status: isFinished ? "FT" : liveStatuses.has(rawStatus) ? "LIVE" : scheduledStatuses.has(rawStatus) ? "NS" : rawStatus,
         homeGoals: hasUsableScore ? homeScore : undefined,
         awayGoals: hasUsableScore ? awayScore : undefined,
