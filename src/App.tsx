@@ -872,7 +872,8 @@ export default function App() {
   const handleLoadFixtureIntoPredictor = (fixture: Fixture) => {
     setPredHomeTeam(fixture.homeTeam);
     setPredAwayTeam(fixture.awayTeam);
-    setPredWasDerby(fixture.wasDerby ?? false);
+    // Preserve unknown derby status instead of inventing a negative signal.
+    setPredWasDerby(fixture.wasDerby);
     setPredHomeRank(fixture.homeRank);
     setPredAwayRank(fixture.awayRank);
     setPredHomeContinentalGap(fixture.homeContinentalGap);
