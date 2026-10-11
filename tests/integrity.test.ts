@@ -126,6 +126,7 @@ describe("live provider validation", () => {
       assert.ok(fixtures.every(f => f.homeTeam !== "Home" && f.awayTeam !== "Away" && f.id));
       assert.ok(fixtures.some(f => f.id === "valid"));
       const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
+      assert.equal(scheduled.status, "NS");
       assert.equal(scheduled.homeGoals, undefined);
       assert.equal(scheduled.awayGoals, undefined);
       assert.equal(scheduled.resultSettled, false);
