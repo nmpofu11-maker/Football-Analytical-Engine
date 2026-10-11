@@ -13,6 +13,7 @@ import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
+import { createOneDriveAuthorization, consumeOneDriveOAuthState, exchangeOneDriveAuthorizationCode, getOneDriveStorageDiagnostics, probeOneDriveStorage, readOneDriveJson, writeOneDriveJson } from "./src/services/oneDriveStorage";
 import {
   getFixtures, saveFixtures,
   getPredictions, savePredictions, addPrediction,
@@ -68,8 +69,12 @@ app.use((req, res, next) => {
     }
   }
 
+  // OAuth bootstrap and remote-drive connectivity checks are administrative setup
+  // operations, not writes to the app's local data store. Keep them available so
+  // OneDrive can be configured before durable application storage is established.
+  const isOneDriveSetupRoute = req.path === "/api/onedrive/auth/start" || req.path === "/api/onedrive/probe";
   const storageHealth = inspectStoragePath();
-  if (!storageHealth.persistenceVerified) {
+  if (!storageHealth.persistenceVerified && !isOneDriveSetupRoute) {
     return res.status(503).json({
       error: "Write operations are disabled because durable storage is not verified for this runtime.",
       code: "PERSISTENT_STORAGE_NOT_VERIFIED",
@@ -1393,6 +1398,69 @@ app.get("/api/diagnostics/evidence", (req, res) => {
         : "Storage persistence is not verified by the running container. A writable local directory can still be ephemeral on Cloud Run."
     }
   });
+});
+
+// Personal Microsoft account OAuth bootstrap and OneDrive Graph diagnostics.
+app.post("/api/onedrive/auth/start", (req, res) => {
+  try {
+    const result = createOneDriveAuthorization();
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(503).json({ error: error.message || "OneDrive OAuth is not configured.", code: error.code || "ONEDRIVE_SETUP_FAILED" });
+  }
+});
+
+app.get("/api/onedrive/auth/callback", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const code = String(req.query.code || "");
+  const state = String(req.query.state || "");
+  if (!consumeOneDriveOAuthState(state)) {
+    return res.status(400).json({ error: "OAuth state is invalid, expired, or was already used. Restart the OneDrive authorization flow." });
+  }
+  if (req.query.error) {
+    return res.status(400).json({ error: "Microsoft authorization was not completed. Restart the OneDrive authorization flow." });
+  }
+  try {
+    const result = await exchangeOneDriveAuthorizationCode(code);
+    // This is the only time the refresh token is shown. Copy it directly into
+    // the ONEDRIVE_REFRESH_TOKEN Secret Manager entry, then redeploy. Never log it.
+    return res.json({
+      success: true,
+      message: "Authorization succeeded. Copy refreshToken to the ONEDRIVE_REFRESH_TOKEN secret, then redeploy. This response is not stored by the app.",
+      refreshToken: result.refreshToken,
+      expiresIn: result.expiresIn,
+      nextStep: "Store refreshToken as ONEDRIVE_REFRESH_TOKEN in your deployment secret manager, redeploy, then call POST /api/onedrive/probe with x-admin-api-key."
+    });
+  } catch (error: any) {
+    console.error("[ONEDRIVE] Authorization-code exchange failed:", error.code || error.status || "TOKEN_EXCHANGE_FAILED");
+    return res.status(502).json({ error: "Microsoft token exchange failed. Check app registration, redirect URI, and consent.", code: error.code || "TOKEN_EXCHANGE_FAILED" });
+  }
+});
+
+app.get("/api/diagnostics/onedrive", (_req, res) => {
+  return res.json({ ...getOneDriveStorageDiagnostics(), note: "OneDrive configuration and connectivity are not yet proof that the app's existing JSON stores use OneDrive." });
+});
+
+app.post("/api/onedrive/probe", async (_req, res) => {
+  try {
+    const result = await probeOneDriveStorage();
+    // Round-trip a dedicated harmless probe file. This verifies Graph read/write
+    // permissions without treating application data as migrated.
+    const probeName = "storage-connectivity-probe.json";
+    const marker = { probeId: randomUUID(), checkedAt: new Date().toISOString(), purpose: "OneDrive connectivity verification" };
+    const saved = await writeOneDriveJson(probeName, marker);
+    const loaded = await readOneDriveJson<typeof marker>(probeName);
+    if (!loaded || loaded.value.probeId !== marker.probeId) {
+      return res.status(502).json({ success: false, error: "OneDrive read-back verification failed.", code: "ONEDRIVE_READBACK_FAILED" });
+    }
+    return res.json({ success: true, ...result, readWriteReadBackVerified: true, probeFile: saved.name, applicationDataMigrated: false, note: "OneDrive is reachable, but application JSON stores are not yet migrated. Keep normal write operations blocked until migration is complete." });
+  } catch (error: any) {
+    return res.status(502).json({ success: false, error: error.message || "OneDrive probe failed.", code: error.code || "ONEDRIVE_PROBE_FAILED" });
+  }
 });
 
 app.get("/api/coefficients/history", (req, res) => {
