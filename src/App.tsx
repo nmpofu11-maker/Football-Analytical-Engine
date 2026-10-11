@@ -105,7 +105,11 @@ export default function App() {
   const [coeffHistoryLogs, setCoeffHistoryLogs] = useState<any[]>([]);
   const [evidenceDiagnostics, setEvidenceDiagnostics] = useState<any | null>(null);
   const [evidenceDiagnosticsError, setEvidenceDiagnosticsError] = useState("");
-  const [isRefreshingEvidenceDiagnostics, setIsRefreshingEvidenceDiagnostics] = useState(false);\n  const [targetTeams, setTargetTeams] = useState<string[]>(LOCKED_80_TEAMS);\n  const [newTargetTeamName, setNewTargetTeamName] = useState("");\n  const [targetTeamMessage, setTargetTeamMessage] = useState("");\n  const [isAddingTargetTeam, setIsAddingTargetTeam] = useState(false);
+  const [isRefreshingEvidenceDiagnostics, setIsRefreshingEvidenceDiagnostics] = useState(false);
+  const [targetTeams, setTargetTeams] = useState<string[]>(LOCKED_80_TEAMS);
+  const [newTargetTeamName, setNewTargetTeamName] = useState("");
+  const [targetTeamMessage, setTargetTeamMessage] = useState("");
+  const [isAddingTargetTeam, setIsAddingTargetTeam] = useState(false);
 
   useEffect(() => {
     secureApiFetch("/api/teams")
