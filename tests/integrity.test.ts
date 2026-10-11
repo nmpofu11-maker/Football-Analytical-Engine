@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { LOCKED_80_TEAMS } from "../src/data/favoriteTeams";
 import { parseBookmakerRawText } from "../src/utils/bookmakerParser";
-import { getFixtureCompositeKey } from "../src/utils/fixtureDedupe";
+import { getFixtureCompositeKey, mergeFixtureSlates } from "../src/utils/fixtureDedupe";
 import { getVerifiedTeamSampleSize } from "../src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "../src/utils/isoDate";
 import { simulateMatchup } from "../src/utils/footballMath";
@@ -157,6 +157,7 @@ describe("live provider validation", () => {
       { id: "missing-kickoff", home_team: "Napoli", away_team: "Roma" },
       { id: "valid", home_team: "Arsenal", away_team: "Chelsea", datetime: "2026-10-10T13:00:00Z", league: { id: 39, name: "Premier League" } },
       { id: "missing-competition", home_team: "Brighton", away_team: "West Ham", datetime: "2026-10-10T13:30:00Z" },
+      { id: "placeholder-competition", home_team: "Everton", away_team: "Fulham", datetime: "2026-10-10T14:00:00Z", competition: "Competition unavailable" },
       { id: "scheduled-zero", home_team: "Liverpool", away_team: "Manchester City", datetime: "2026-10-10T15:00:00Z", status: "SCHEDULED", home_score: 0, away_score: 0, league: { id: 39, name: "Premier League" } },
       { id: "finished", home_team: "Napoli", away_team: "Roma", datetime: "2026-10-10T18:00:00Z", status: "FT", home_score: 2, away_score: 1, competition: { id: 135, name: "Serie A" } }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
@@ -169,6 +170,7 @@ describe("live provider validation", () => {
       assert.equal(fixtures[0].sourceConfidence, "verified");
       assert.equal(fixtures[0].competition, "Premier League");
       assert.ok(!fixtures.some(f => f.id === "missing-competition"));
+      assert.ok(!fixtures.some(f => f.id === "placeholder-competition"));
       assert.ok(fixtures.every(f => f.competition && f.competition !== "Competition unavailable"));
       const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
       assert.equal(scheduled.competition, "Premier League");
@@ -264,6 +266,47 @@ describe("live provider validation", () => {
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
       else process.env.THERUNDOWN_KEY = oldKey;
     }
+  });
+});
+
+describe("scheduled fixture merge integrity", () => {
+  it("clears stale scorelines when a scheduled provider refresh omits scores", () => {
+    const existing = [{
+      id: "sportapi-1", date: "2026-10-12", time: "18:00",
+      homeTeam: "Liverpool", awayTeam: "Manchester City", competition: "Premier League",
+      status: "NS" as const, finalScore: { home: 0, away: 0 }, resultSettled: false,
+      source: "sportapi-ai", sourceConfidence: "verified" as const, ingestedAt: "2026-10-11T08:00:00.000Z"
+    }];
+    const incoming = [{
+      id: "rundown-1", date: "2026-10-12", time: "18:00",
+      homeTeam: "Liverpool", awayTeam: "Manchester City", competition: "Premier League",
+      status: "NS" as const, resultSettled: false, source: "therundown",
+      sourceConfidence: "verified" as const, ingestedAt: "2026-10-11T09:00:00.000Z"
+    }];
+    const merged = mergeFixtureSlates(existing, incoming);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].status, "NS");
+    assert.equal(merged[0].finalScore, undefined);
+  });
+
+  it("preserves a result explicitly marked as settled", () => {
+    const existing = [{
+      id: "sportapi-finished", date: "2026-10-10", time: "18:00",
+      homeTeam: "Napoli", awayTeam: "Roma", competition: "Serie A",
+      status: "FT" as const, finalScore: { home: 2, away: 1 }, resultSettled: true,
+      settledAt: "2026-10-10T20:00:00.000Z", source: "sportapi-ai",
+      sourceConfidence: "verified" as const, ingestedAt: "2026-10-10T20:01:00.000Z"
+    }];
+    const incoming = [{
+      id: "rundown-stale-schedule", date: "2026-10-10", time: "18:00",
+      homeTeam: "Napoli", awayTeam: "Roma", competition: "Serie A",
+      status: "NS" as const, resultSettled: false, source: "therundown",
+      sourceConfidence: "verified" as const, ingestedAt: "2026-10-11T09:00:00.000Z"
+    }];
+    const merged = mergeFixtureSlates(existing, incoming);
+    assert.equal(merged.length, 1);
+    assert.deepEqual(merged[0].finalScore, { home: 2, away: 1 });
+    assert.equal(merged[0].resultSettled, true);
   });
 });
 

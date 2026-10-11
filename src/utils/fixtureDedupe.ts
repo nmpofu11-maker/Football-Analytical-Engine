@@ -67,14 +67,24 @@ export function mergeFixtureSlates(
       (priority(item.source) === priority(prev.source) &&
        (!prev.ingestedAt || !item.ingestedAt || item.ingestedAt >= prev.ingestedAt)));
 
-    map.set(key, {
+    const merged: Fixture = {
       ...(useIncoming ? prev : item),
       ...(useIncoming ? item : prev),
       source: useIncoming ? item.source : prev.source,
       sourceConfidence: useIncoming ? (item.sourceConfidence || prev.sourceConfidence) : prev.sourceConfidence,
       ingestedAt: useIncoming ? (item.ingestedAt || prev.ingestedAt) : prev.ingestedAt,
       isBookmakerProtected: incomingIsBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
-    });
+    };
+
+    // A scheduled provider record often omits score fields entirely. Object spread
+    // does not remove an older finalScore in that case, so a stale 0-0 can survive
+    // a refresh. Clear it unless the result has already been explicitly settled.
+    // Bookmaker-protected records returned above are intentionally handled separately.
+    if (isIncoming && item.status === "NS" && prev.resultSettled !== true && item.resultSettled !== true) {
+      delete merged.finalScore;
+    }
+
+    map.set(key, merged);
   };
 
   existingList.forEach(x => add(x, false));
