@@ -2690,6 +2690,19 @@ export default function App() {
                         <p className="text-xs mt-1">The model starts from baseline expected-goal priors. Current form, confirmed lineups, injuries, standings, and match-specific statistics are not automatically loaded into this simulator. Percentages below are mathematical model outputs, not validated betting probabilities. Model confidence remains unavailable until out-of-sample calibration is demonstrated.</p>
                       </div>
 
+                      {simulationResult.evidenceGate === "blocked" ? (
+                        <div role="status" className="bg-amber-50 border border-amber-300 text-amber-950 p-5 rounded-xl">
+                          <h4 className="font-bold text-sm">Insufficient verified team evidence — estimates withheld</h4>
+                          <p className="text-xs mt-2">At least one selected team has no verified historical sample in the team matrix. The engine will not display baseline expected goals, a score estimate, or win/draw/loss percentages as if they were match-specific analysis.</p>
+                          <p className="text-xs mt-2">Load and verify historical match results for both teams before using this simulator. Even after that, these outputs remain exploratory until match-specific evidence and out-of-sample calibration are demonstrated.</p>
+                          <div className="mt-3 flex flex-col gap-1 font-mono text-[10px]">
+                            {simulationResult.reasons.map((reason, idx) => (
+                              <div key={idx}>▶ {reason}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
                       {/* Main scoreboard estimate */}
                       <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-6 border-b border-[#F1F5F9] pb-6">
                         <div className="text-center md:text-right">
@@ -2761,6 +2774,8 @@ export default function App() {
                           ))}
                         </div>
                       </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
