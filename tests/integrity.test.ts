@@ -435,8 +435,12 @@ describe("personal OneDrive OAuth bootstrap", () => {
       assert.match(url.searchParams.get("scope") || "", /Files.ReadWrite/);
       assert.match(url.searchParams.get("scope") || "", /offline_access/);
       const state = url.searchParams.get("state") || "";
-      assert.equal(consumeOneDriveOAuthState(state), true);
-      assert.equal(consumeOneDriveOAuthState(state), false);
+      const verifier = consumeOneDriveOAuthState(state);
+      assert.equal(typeof verifier, "string");
+      assert.ok((verifier || "").length >= 40);
+      assert.equal(consumeOneDriveOAuthState(state), null);
+      assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+      assert.ok((url.searchParams.get("code_challenge") || "").length > 20);
       assert.equal(result.expiresInSeconds, 600);
     } finally {
       if (original.clientId === undefined) delete process.env.ONEDRIVE_CLIENT_ID; else process.env.ONEDRIVE_CLIENT_ID = original.clientId;
