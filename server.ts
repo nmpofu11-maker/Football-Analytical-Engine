@@ -1068,7 +1068,11 @@ app.post("/api/results/backfill", async (req, res) => {
     return res.status(500).json({ error: "Existing results store is unreadable; no backfill was written." });
   }
 
-  const existingKeys = new Set(resultsList.map((r: any) => String(r.matchKey || "")).filter(Boolean));
+  const existingKeys = new Set(resultsList.map((r: any) => {
+    if (r.matchKey) return String(r.matchKey);
+    if (r.homeTeam && r.awayTeam && r.date) return getCompositeKeyServer(String(r.homeTeam), String(r.awayTeam), String(r.date));
+    return "";
+  }).filter(Boolean));
   checkAndResetResultsApiQuota();
   let fetched = 0;
   let imported = 0;
@@ -1130,8 +1134,17 @@ app.post("/api/results/backfill", async (req, res) => {
   }
   saveResultsConfig();
   ensureDataDir();
-  fs.writeFileSync(resultsFile, JSON.stringify(resultsList, null, 2), "utf-8");
-  return res.json({ success: true, startDate, endDate, datesRequested: days, providerRecordsFetched: fetched, imported, skipped, totalVerifiedRecords: resultsList.length, errors });
+  const tempResultsFile = resultsFile + ".tmp";
+  try {
+    fs.writeFileSync(tempResultsFile, JSON.stringify(resultsList, null, 2), "utf-8");
+    fs.renameSync(tempResultsFile, resultsFile);
+  } catch (writeError: any) {
+    try { if (fs.existsSync(tempResultsFile)) fs.unlinkSync(tempResultsFile); } catch {}
+    console.error("[RESULTS BACKFILL] Failed to persist imported results:", writeError);
+    return res.status(500).json({ error: "Backfill data could not be safely persisted; check server storage permissions." });
+  }
+  const status = errors.length === 0 ? "completed" : imported > 0 ? "partial" : "failed";
+  return res.status(status === "failed" ? 502 : 200).json({ success: status === "completed", status, startDate, endDate, datesRequested: days, providerRecordsFetched: fetched, imported, skipped, totalVerifiedRecords: resultsList.length, errors });
 });
 
 app.get("/api/results/verified", (req, res) => {
