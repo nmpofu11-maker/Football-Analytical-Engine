@@ -126,12 +126,12 @@ function inspectStoragePath() {
   }
 
   try {
-    const mounts = fs.readFileSync("/proc/mounts", "utf-8").split("\\n")
+    const mounts = fs.readFileSync("/proc/mounts", "utf-8").split("\n")
       .map(line => {
         const fields = line.split(" ");
         return {
           source: fields[0] || "",
-          point: (fields[1] || "").replace(/\\\\040/g, " "),
+          point: (fields[1] || "").replace(/\\040/g, " "),
           type: fields[2] || ""
         };
       })
