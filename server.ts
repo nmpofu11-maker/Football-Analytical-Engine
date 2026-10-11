@@ -878,9 +878,12 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
           return key === matchKey;
         });
 
-        if (found && (found.status === "FT" || found.status === "FINISHED" || found.homeGoals !== undefined || found.home_score !== undefined)) {
-          const hG = Number(found.homeGoals ?? found.home_score ?? found.homeScore ?? 0);
-          const aG = Number(found.awayGoals ?? found.away_score ?? found.awayScore ?? 0);
+        if (found && ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"].includes(String(found.status || "").trim().toUpperCase())) {
+          const rawHome = found.homeGoals ?? found.home_score ?? found.homeScore;
+          const rawAway = found.awayGoals ?? found.away_score ?? found.awayScore;
+          const hG = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+          const aG = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+          if (!Number.isSafeInteger(hG) || hG < 0 || !Number.isSafeInteger(aG) || aG < 0) continue;
           
           updatedManifest[i] = {
             ...match,
