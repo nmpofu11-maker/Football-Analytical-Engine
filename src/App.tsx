@@ -2668,7 +2668,7 @@ export default function App() {
                       onChange={(e) => setPredAwayTeam(e.target.value)}
                       className="text-xs p-3 border border-[#E2E8F0] rounded-xl bg-white focus:ring-2 focus:ring-[#15803D]/20 focus:border-[#15803D]"
                     >
-                      {LOCKED_80_TEAMS.map(team => {
+                      {targetTeams.map(team => {
                         const isToday = todaysTeams.has(team);
                         const isFast = isFastPacedLeagueTeam(team);
                         return (
