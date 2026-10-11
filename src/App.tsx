@@ -174,7 +174,7 @@ export default function App() {
   // Predictor States
   const [predHomeTeam, setPredHomeTeam] = useState<string>("Napoli");
   const [predAwayTeam, setPredAwayTeam] = useState<string>("Club Brugge");
-  const [predWasDerby, setPredWasDerby] = useState<boolean>(false);
+  const [predWasDerby, setPredWasDerby] = useState<boolean | undefined>(false);
   const [predHomeRank, setPredHomeRank] = useState<number | undefined>(undefined);
   const [predAwayRank, setPredAwayRank] = useState<number | undefined>(undefined);
   const [predHomeContinentalGap, setPredHomeContinentalGap] = useState<number | undefined>(undefined);
@@ -2562,7 +2562,7 @@ export default function App() {
                       <span className="text-xs font-semibold text-[#334155]">Local Derby Context:</span>
                       <input
                         type="checkbox"
-                        checked={predWasDerby}
+                        checked={predWasDerby ?? false}
                         onChange={(e) => setPredWasDerby(e.target.checked)}
                         className="w-4 h-4 text-[#15803D] focus:ring-[#15803D] rounded cursor-pointer"
                       />
