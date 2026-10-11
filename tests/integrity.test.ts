@@ -139,5 +139,28 @@ describe("live provider validation", () => {
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
       else process.env.THERUNDOWN_KEY = oldKey;
     }
+
+  it("backs off after TheRundown rate limiting instead of calling every competition", async () => {
+    const oldKey = process.env.THERUNDOWN_KEY;
+    const oldFetch = globalThis.fetch;
+    let calls = 0;
+    process.env.THERUNDOWN_KEY = "test-key";
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("rate limited", { status: 429 });
+    }) as typeof fetch;
+    try {
+      const fixtures = await fetchTheRundownFixtures("2026-10-10");
+      assert.deepEqual(fixtures, []);
+      assert.equal(calls, 1);
+      const duringCooldown = await fetchTheRundownFixtures("2026-10-10");
+      assert.deepEqual(duringCooldown, []);
+      assert.equal(calls, 1);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
+      else process.env.THERUNDOWN_KEY = oldKey;
+    }
+  });
   });
 });
