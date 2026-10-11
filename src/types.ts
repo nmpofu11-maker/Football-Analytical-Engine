@@ -50,4 +50,5 @@ export interface SimulationResult {
   awayConfidenceLower: number | null;
   awayConfidenceUpper: number | null;
   confidenceStatus: "available" | "insufficient-data";
+  evidenceGate: "open" | "blocked";
 }
