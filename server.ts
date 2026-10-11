@@ -1220,7 +1220,14 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
-  const normalizeTargetName = (value: unknown) => typeof value === "string"    ? value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "").replace(/[^a-z0-9]/g, "")
+  const normalizeTargetName = (value: unknown) => {
+    if (typeof value !== "string") return "";
+    return value.toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "")
+      .replace(/[^a-z0-9]/g, "");
+  };
     : "";
   const targetTeamNames = new Set(targetTeams.map(normalizeTargetName));
   const savedResultsWithTargetTeam = results.filter(record => {
