@@ -238,14 +238,25 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
     const useIncoming = incomingItem && (nextPriority > prevPriority || (nextPriority === prevPriority && nextIsNewer));
     const base = useIncoming ? prev : item;
     const overlay = useIncoming ? item : prev;
-    map.set(key, {
+    const merged = {
       ...base,
       ...Object.fromEntries(Object.entries(overlay).filter(([k,v]) => v !== undefined && v !== null)),
       source: useIncoming ? item.source : prev.source,
       sourceConfidence: useIncoming ? (item.sourceConfidence || prev.sourceConfidence) : prev.sourceConfidence,
       ingestedAt: useIncoming ? (item.ingestedAt || prev.ingestedAt) : prev.ingestedAt,
       isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
-    });
+    };
+    // A newer upcoming-provider record must clear stale placeholder scores, but never erase a settled result.
+    const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+    const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"].includes(incomingStatus);
+    if (incomingItem && useIncoming && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
+      delete merged.homeGoals;
+      delete merged.awayGoals;
+      delete merged.finalScore;
+      delete merged.home_score;
+      delete merged.away_score;
+    }
+    map.set(key, merged);
   };
   for (const item of existing) put(item, false);
   for (const item of incoming) put(item, true);
