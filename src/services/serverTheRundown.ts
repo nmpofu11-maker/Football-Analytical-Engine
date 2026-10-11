@@ -122,7 +122,8 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         headers: {
           "X-TheRundown-Key": apiKey,
           "Accept": "application/json"
-        }
+        },
+        signal: AbortSignal.timeout(8_000)
       });
       lastHttpStatus = res.status;
       if (res.status === 429) {
