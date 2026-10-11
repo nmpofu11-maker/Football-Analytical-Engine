@@ -65,12 +65,12 @@ function validTeamName(value: any): string {
 export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
   const apiKey = process.env.THERUNDOWN_KEY || "";
   if (!apiKey) {
-    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastErrorCode: "missing_api_key", lastServedFromCache: false };
+    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key", lastServedFromCache: false };
     console.warn("THERUNDOWN_KEY not configured.");
     return [];
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
-    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastErrorCode: "invalid_date", lastServedFromCache: false };
+    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date", lastServedFromCache: false };
     console.warn("TheRundown fixture request rejected: invalid date.");
     return [];
   }
@@ -78,7 +78,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
   const now = Date.now();
   const cached = fixtureCache.get(dateStr);
   if (cached && cached.expiresAt > now) {
-    providerDiagnostics = { ...providerDiagnostics, state: "cached", lastServedFromCache: true };
+    providerDiagnostics = { ...providerDiagnostics, state: "cached", lastFixtureCount: cached.fixtures.length, lastServedFromCache: true };
     return cached.fixtures.map(f => ({ ...f }));
   }
   if (cached) fixtureCache.delete(dateStr);
@@ -100,6 +100,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
     state: "requesting",
     lastAttemptAt: new Date().toISOString(),
     lastHttpStatus: null,
+    lastFixtureCount: 0,
     requestsAttempted: 0,
     successfulResponses: 0,
     lastErrorCode: null,
