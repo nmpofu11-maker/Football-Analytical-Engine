@@ -11,8 +11,8 @@ import { parseBookmakerRawText } from "./src/utils/bookmakerParser";
 import { simulateMatchup } from "./src/utils/footballMath";
 import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
-import { fetchSportApiAiFixtures } from "./src/services/serverSportApiAi";
-import { fetchTheRundownFixtures } from "./src/services/serverTheRundown";
+import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
+import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
 import {
   getFixtures, saveFixtures,
   getPredictions, savePredictions, addPrediction,
@@ -1333,6 +1333,11 @@ app.get("/api/diagnostics/evidence", (req, res) => {
         ? "persistent mounted storage detected"
         : "persistence not verified; configure a persistent mounted volume and confirm this diagnostic again",
       officialResultsEndpointConfigured
+    },
+    providerHealth: {
+      sportApiAi: getSportApiAiProviderDiagnostics(),
+      theRundown: getTheRundownProviderDiagnostics(),
+      note: "These are the latest in-process provider call results. A cold instance reports idle until a fixture request or scheduled ingest runs."
     },
     historicalEvidence: {
       resultsStoreReadable,

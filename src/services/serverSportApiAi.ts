@@ -17,6 +17,33 @@ export interface SportApiAiFixture {
   ingestedAt: string;
 }
 
+export type ProviderCallState = "idle" | "not_configured" | "invalid_request" | "requesting" | "success" | "success_empty" | "http_error" | "request_error";
+
+interface ProviderCallDiagnostics {
+  state: ProviderCallState;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastHttpStatus: number | null;
+  lastFixtureCount: number;
+  lastErrorCode: string | null;
+}
+
+let providerDiagnostics: ProviderCallDiagnostics = {
+  state: "idle",
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastHttpStatus: null,
+  lastFixtureCount: 0,
+  lastErrorCode: null
+};
+
+export function getSportApiAiProviderDiagnostics() {
+  return {
+    configured: Boolean(process.env.SPORTAPI_AI_KEY),
+    ...providerDiagnostics
+  };
+}
+
 function readTeam(value: any): string {
   if (typeof value === "string") return value.trim();
   if (value && typeof value === "object") {
@@ -51,13 +78,24 @@ function isPlaceholderCompetition(name: string): boolean {
 export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApiAiFixture[]> {
   const apiKey = process.env.SPORTAPI_AI_KEY || "";
   if (!apiKey) {
+    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key" };
     console.warn("SPORTAPI_AI_KEY not configured.");
     return [];
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
+    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date" };
     console.warn("SportAPI.ai fixture request rejected: invalid date.");
     return [];
   }
+
+  providerDiagnostics = {
+    ...providerDiagnostics,
+    state: "requesting",
+    lastAttemptAt: new Date().toISOString(),
+    lastHttpStatus: null,
+    lastFixtureCount: 0,
+    lastErrorCode: null
+  };
 
   try {
     const res = await fetch(`https://sportapi.ai/api/fixtures?date=${encodeURIComponent(dateStr)}`, {
@@ -66,13 +104,16 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         "Authorization": `Bearer ${apiKey}`,
         "Accept": "application/json",
         "User-Agent": "Football-Analytical-Engine/1.0"
-      }
+      },
+      signal: AbortSignal.timeout(10_000)
     });
     if (!res.ok) {
+      providerDiagnostics = { ...providerDiagnostics, state: "http_error", lastHttpStatus: res.status, lastErrorCode: `http_${res.status}` };
       console.warn(`SportAPI.ai returned HTTP ${res.status}.`);
       return [];
     }
 
+    providerDiagnostics = { ...providerDiagnostics, lastHttpStatus: res.status };
     const payload = await res.json();
     const items = readItems(payload);
     const ingestedAt = new Date().toISOString();
@@ -135,8 +176,16 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       });
     }
 
+    providerDiagnostics = {
+      ...providerDiagnostics,
+      state: fixtures.length ? "success" : "success_empty",
+      lastSuccessAt: new Date().toISOString(),
+      lastFixtureCount: fixtures.length,
+      lastErrorCode: null
+    };
     return fixtures;
   } catch (err: any) {
+    providerDiagnostics = { ...providerDiagnostics, state: "request_error", lastErrorCode: "request_failed" };
     console.error("SportAPI.ai fetch error:", err?.message || err);
     return [];
   }
