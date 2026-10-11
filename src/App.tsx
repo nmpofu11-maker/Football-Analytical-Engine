@@ -422,23 +422,11 @@ export default function App() {
     setSimulationResult(result);
   };
 
-  // Run model advancement research scan
+  // Request advisory AI output without simulating research activity in the UI.
   const handleAdvancementResearch = async () => {
     setIsResearching(true);
-    setResearchConsole(["Initiating reinforcement search agent...", "Connecting to Sports Predictive Modeling Index (SPMI)..."]);
-    
-    // Simulate terminal outputs for beautiful UX
-    const steps = [
-      "Analyzing 2026 low-block metrics...",
-      "Resolving shot accuracy gaps inside compact structures...",
-      "Reading geographic transition velocity offsets for Sweden, Norway, and Japan...",
-      "Re-weighting fatigue decays against 3-day recovery windows..."
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise(r => setTimeout(r, 600));
-      setResearchConsole(prev => [...prev, steps[i]]);
-    }
+    setProposedUpdates(null);
+    setResearchConsole(["Requesting an AI-generated advisory recommendation. This is not live web research or model calibration."]);
 
     try {
       const response = await secureApiFetch("/api/self-improvement", {
@@ -446,20 +434,22 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentCoefficients: teamMatrices })
       });
+
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error("Advancement research api failed");
+        throw new Error(typeof data.error === "string" ? data.error : `Research service returned HTTP ${response.status}`);
       }
-      const data = await response.json();
+      if (!data.recommended_coefficients || typeof data.meta_improvement_notes !== "string") {
+        throw new Error("Research service returned an incomplete recommendation; no result was accepted.");
+      }
 
-      setResearchConsole(prev => [
-        ...prev,
-        "Research recommendation returned; live coefficients were not changed.",
-        `Recommended parameters calibrated with shot accuracy gaps against compact low blocks.`
+      setResearchConsole([
+        "AI response received. It has not been independently web-verified, statistically backtested, or applied to the live model.",
+        data.meta_improvement_notes
       ]);
-
       setProposedUpdates(data);
     } catch (err: any) {
-      setResearchConsole(prev => [...prev, `[ERROR] Research failed: ${err.message}`]);
+      setResearchConsole([ `[UNAVAILABLE] ${err instanceof Error ? err.message : "Research request failed"}`, "No synthetic recommendation was substituted. Existing model coefficients remain unchanged." ]);
     } finally {
       setIsResearching(false);
     }
