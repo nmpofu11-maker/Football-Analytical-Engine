@@ -60,7 +60,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
   }
 
   try {
-    const res = await fetch(`https://sportapi.ai/api/fixtures/date/${dateStr}`, {
+    const res = await fetch(`https://sportapi.ai/api/fixtures?date=${encodeURIComponent(dateStr)}`, {
       headers: {
         "X-Api-Key": apiKey,
         "Authorization": `Bearer ${apiKey}`,

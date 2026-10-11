@@ -1,19 +1,26 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// IDs are TheRundown sport IDs, not league IDs from another provider.
+// Keep this list aligned with the provider's published soccer catalog.
 export const SOCCER_SPORT_IDS = [
-  { id: 11, name: "Premier League" },
-  { id: 17, name: "La Liga" },
-  { id: 16, name: "Serie A" },
-  { id: 18, name: "Bundesliga" },
-  { id: 19, name: "Ligue 1" },
   { id: 10, name: "MLS" },
-  { id: 12, name: "Champions League" },
-  { id: 13, name: "Europa League" }
+  { id: 11, name: "Premier League" },
+  { id: 12, name: "Ligue 1" },
+  { id: 13, name: "Bundesliga" },
+  { id: 14, name: "La Liga" },
+  { id: 15, name: "Serie A" },
+  { id: 16, name: "Champions League" },
+  { id: 19, name: "J1 League" },
+  { id: 34, name: "Liga MX" }
 ];
 
-const RATE_LIMIT_COOLDOWN_MS = 60_000;
+const BASE_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+const MAX_RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
+const SUCCESS_CACHE_TTL_MS = 5 * 60_000;
 let rateLimitedUntil = 0;
+let consecutiveRateLimits = 0;
+const fixtureCache = new Map<string, { expiresAt: number; fixtures: any[] }>();
 
 function validTeamName(value: any): string {
   const name = typeof value === "string" ? value.trim() : "";
@@ -31,12 +38,18 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
     return [];
   }
 
-  if (Date.now() < rateLimitedUntil) {
-    console.warn("TheRundown requests paused briefly after HTTP 429 rate limiting.");
+  const now = Date.now();
+  const cached = fixtureCache.get(dateStr);
+  if (cached && cached.expiresAt > now) return cached.fixtures.map(f => ({ ...f }));
+  if (cached) fixtureCache.delete(dateStr);
+
+  if (now < rateLimitedUntil) {
+    console.warn("TheRundown requests paused after HTTP 429 rate limiting.");
     return [];
   }
 
   const allFixtures: any[] = [];
+  let successfulResponses = 0;
   const ingestedAt = new Date().toISOString();
 
   for (const sport of SOCCER_SPORT_IDS) {
@@ -49,14 +62,22 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         }
       });
       if (res.status === 429) {
-        rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
-        console.warn("TheRundown returned HTTP 429; pausing provider requests for 60 seconds.");
+        consecutiveRateLimits += 1;
+        const exponentialDelay = Math.min(
+          MAX_RATE_LIMIT_COOLDOWN_MS,
+          BASE_RATE_LIMIT_COOLDOWN_MS * (2 ** Math.min(consecutiveRateLimits - 1, 3))
+        );
+        const retryAfter = Number(res.headers.get("retry-after"));
+        const providerDelay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 0;
+        rateLimitedUntil = Date.now() + Math.min(MAX_RATE_LIMIT_COOLDOWN_MS, Math.max(exponentialDelay, providerDelay));
+        console.warn("TheRundown returned HTTP 429; provider calls paused with bounded exponential backoff.");
         break;
       }
       if (!res.ok) {
         console.warn(`TheRundown returned HTTP ${res.status} for ${sport.name}.`);
         continue;
       }
+      successfulResponses += 1;
       const payload: any = await res.json();
       const events = Array.isArray(payload?.events) ? payload.events : Array.isArray(payload?.data?.events) ? payload.data.events : [];
       for (const ev of events) {
@@ -110,6 +131,21 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
     } catch (err: any) {
       console.warn(`TheRundown fetch warning for ${sport.name}:`, err?.message || err);
     }
+  }
+
+  if (successfulResponses > 0) {
+    // Cache successful and partial responses briefly to avoid every UI refresh
+    // re-querying all eight competitions. A 429 cooldown remains authoritative.
+    fixtureCache.set(dateStr, {
+      expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS,
+      fixtures: allFixtures.map(f => ({ ...f }))
+    });
+    while (fixtureCache.size > 12) {
+      const oldestKey = fixtureCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      fixtureCache.delete(oldestKey);
+    }
+    if (successfulResponses === SOCCER_SPORT_IDS.length) consecutiveRateLimits = 0;
   }
 
   return allFixtures;

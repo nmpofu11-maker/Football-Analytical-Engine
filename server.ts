@@ -275,12 +275,21 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
     // A newer upcoming-provider record must clear stale placeholder scores, but never erase a settled result.
     const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
     const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"].includes(incomingStatus);
-    if (incomingItem && useIncoming && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
+    if (incomingItem && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
+      // Status evidence from a fresh provider refresh must invalidate stale scores
+      // even when that provider has lower source priority than the stored record.
+      // Keep the source-priority decision for provenance, but never keep a score
+      // attached to a fixture that a trusted provider now says has not started.
+      merged.status = "NS";
+      merged.resultSettled = false;
       delete merged.homeGoals;
       delete merged.awayGoals;
+      delete merged.homeScore;
+      delete merged.awayScore;
       delete merged.finalScore;
       delete merged.home_score;
       delete merged.away_score;
+      delete merged.score;
     }
     map.set(key, merged);
   };

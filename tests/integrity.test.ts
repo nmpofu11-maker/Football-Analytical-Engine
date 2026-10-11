@@ -7,7 +7,7 @@ import { getVerifiedTeamSampleSize } from "../src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "../src/utils/isoDate";
 import { simulateMatchup } from "../src/utils/footballMath";
 import { fetchSportApiAiFixtures } from "../src/services/serverSportApiAi";
-import { fetchTheRundownFixtures } from "../src/services/serverTheRundown";
+import { fetchTheRundownFixtures, SOCCER_SPORT_IDS } from "../src/services/serverTheRundown";
 
 describe("verified historical sample provenance", () => {
   it("counts only distinct settled results from recognized providers", () => {
@@ -133,18 +133,37 @@ describe("integrity guards", () => {
 });
 
 describe("live provider validation", () => {
-  it("returns no fixtures when SportAPI.ai rejects the request", async () => {
+  it("uses the documented SportAPI.ai fixtures date endpoint and returns no fixtures on rejection", async () => {
     const oldKey = process.env.SPORTAPI_AI_KEY;
     const oldFetch = globalThis.fetch;
+    let requestedUrl = "";
     process.env.SPORTAPI_AI_KEY = "test-key";
-    globalThis.fetch = (async () => new Response("unauthorized", { status: 401 })) as typeof fetch;
+    globalThis.fetch = (async (input: any) => {
+      requestedUrl = String(input);
+      return new Response("unauthorized", { status: 401 });
+    }) as typeof fetch;
     try {
       assert.deepEqual(await fetchSportApiAiFixtures("2026-10-10"), []);
+      assert.equal(requestedUrl, "https://sportapi.ai/api/fixtures?date=2026-10-10");
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
       else process.env.SPORTAPI_AI_KEY = oldKey;
     }
+  });
+
+  it("uses TheRundown's documented soccer sport IDs", () => {
+    assert.deepEqual(SOCCER_SPORT_IDS, [
+      { id: 10, name: "MLS" },
+      { id: 11, name: "Premier League" },
+      { id: 12, name: "Ligue 1" },
+      { id: 13, name: "Bundesliga" },
+      { id: 14, name: "La Liga" },
+      { id: 15, name: "Serie A" },
+      { id: 16, name: "Champions League" },
+      { id: 19, name: "J1 League" },
+      { id: 34, name: "Liga MX" }
+    ]);
   });
 
   it("rejects placeholder or incomplete SportAPI.ai fixtures", async () => {
@@ -245,6 +264,28 @@ describe("live provider validation", () => {
     }
   });
 
+  it("caches successful TheRundown fixture responses to avoid repeated competition requests", async () => {
+    const oldKey = process.env.THERUNDOWN_KEY;
+    const oldFetch = globalThis.fetch;
+    let calls = 0;
+    const date = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
+    process.env.THERUNDOWN_KEY = "test-key";
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ events: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      assert.deepEqual(await fetchTheRundownFixtures(date), []);
+      assert.equal(calls, SOCCER_SPORT_IDS.length);
+      assert.deepEqual(await fetchTheRundownFixtures(date), []);
+      assert.equal(calls, SOCCER_SPORT_IDS.length);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
+      else process.env.THERUNDOWN_KEY = oldKey;
+    }
+  });
+
   it("backs off after TheRundown rate limiting instead of calling every competition", async () => {
     const oldKey = process.env.THERUNDOWN_KEY;
     const oldFetch = globalThis.fetch;
@@ -255,10 +296,10 @@ describe("live provider validation", () => {
       return new Response("rate limited", { status: 429 });
     }) as typeof fetch;
     try {
-      const fixtures = await fetchTheRundownFixtures("2026-10-10");
+      const fixtures = await fetchTheRundownFixtures("2026-10-11");
       assert.deepEqual(fixtures, []);
       assert.equal(calls, 1);
-      const duringCooldown = await fetchTheRundownFixtures("2026-10-10");
+      const duringCooldown = await fetchTheRundownFixtures("2026-10-11");
       assert.deepEqual(duringCooldown, []);
       assert.equal(calls, 1);
     } finally {
