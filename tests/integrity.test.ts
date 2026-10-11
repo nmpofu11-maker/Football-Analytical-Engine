@@ -53,6 +53,17 @@ describe("integrity guards", () => {
     assert.ok(unknown.homeExpectedGoals < knownNonDerby.homeExpectedGoals);
   });
 
+  it("keeps displayed outcome probabilities between 0 and 100 and totaling exactly 100", () => {
+    const coefficients = { home_advantage_multiplier: 1.08, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 };
+    const result = simulateMatchup(
+      "Napoli", "FC Nantes", coefficients, coefficients,
+      false, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 0, 0
+    );
+    const percentages = [result.homeWinProbability, result.drawProbability, result.awayWinProbability];
+    assert.equal(percentages.reduce((sum, value) => sum + value, 0), 100);
+    assert.ok(percentages.every(value => Number.isInteger(value) && value >= 0 && value <= 100));
+  });
+
   it("does not report heuristic confidence from sample counts", () => {
     const result = simulateMatchup(
       "Napoli", "FC Nantes",
