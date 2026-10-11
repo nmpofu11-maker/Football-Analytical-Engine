@@ -93,6 +93,7 @@ describe("live provider validation", () => {
       assert.equal(fixtures[0].sourceConfidence, "verified");
       const scheduled = fixtures.find(f => f.id === "scheduled-zero")!;
       assert.equal(scheduled.competition, "Premier League");
+      assert.equal(scheduled.status, "NS");
       assert.equal(scheduled.homeGoals, undefined);
       assert.equal(scheduled.awayGoals, undefined);
       assert.equal(scheduled.resultSettled, false);
