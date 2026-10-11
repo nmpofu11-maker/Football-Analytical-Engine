@@ -78,12 +78,12 @@ function isPlaceholderCompetition(name: string): boolean {
 export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApiAiFixture[]> {
   const apiKey = process.env.SPORTAPI_AI_KEY || "";
   if (!apiKey) {
-    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastErrorCode: "missing_api_key" };
+    providerDiagnostics = { ...providerDiagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key" };
     console.warn("SPORTAPI_AI_KEY not configured.");
     return [];
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
-    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastErrorCode: "invalid_date" };
+    providerDiagnostics = { ...providerDiagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date" };
     console.warn("SportAPI.ai fixture request rejected: invalid date.");
     return [];
   }
@@ -93,6 +93,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
     state: "requesting",
     lastAttemptAt: new Date().toISOString(),
     lastHttpStatus: null,
+    lastFixtureCount: 0,
     lastErrorCode: null
   };
 
