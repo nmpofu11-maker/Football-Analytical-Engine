@@ -169,7 +169,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         status: isFinished ? "FT" : isLive ? "LIVE" : (kickoffInFuture || scheduledStatuses.has(rawStatus)) ? "NS" : rawStatus,
         homeGoals: hasUsableScore ? homeScore : undefined,
         awayGoals: hasUsableScore ? awayScore : undefined,
-        resultSettled: isFinished,
+        resultSettled: isFinished && validScores,
         source: "sportapi-ai",
         sourceConfidence: "verified",
         ingestedAt
