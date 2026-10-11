@@ -437,20 +437,23 @@ async function fetchEspnFixtures(dateString: string): Promise<any[]> {
                 
                 if (!homeTeamName || !awayTeamName) continue;
                 
-                // Match against our locked 80 target teams
-                const isHomeFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === homeTeamName.toLowerCase());
-                const isAwayFav = LOCKED_80_TEAMS.some(t => t.toLowerCase() === awayTeamName.toLowerCase());
+                // Match against the original 80 plus explicitly added target teams.
+                const managedTeams = getTargetTeams();
+                const matchedHome = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(homeTeamName));
+                const matchedAway = managedTeams.find(t => normalizeTeamServer(t) === normalizeTeamServer(awayTeamName));
+                const isHomeFav = Boolean(matchedHome);
+                const isAwayFav = Boolean(matchedAway);
                 
                 if (isHomeFav || isAwayFav) {
-                  const matchedHome = LOCKED_80_TEAMS.find(t => t.toLowerCase() === homeTeamName.toLowerCase()) || homeTeamName;
-                  const matchedAway = LOCKED_80_TEAMS.find(t => t.toLowerCase() === awayTeamName.toLowerCase()) || awayTeamName;
+                  const canonicalHome = matchedHome || homeTeamName;
+                  const canonicalAway = matchedAway || awayTeamName;
                   
                   fixtures.push({
                     id: `espn-${gameId}`,
                     date: dateString,
                     time,
-                    homeTeam: matchedHome,
-                    awayTeam: matchedAway,
+                    homeTeam: canonicalHome,
+                    awayTeam: canonicalAway,
                     competition: leagueName,
                     source: "espn",
                     sourceConfidence: "unknown",
