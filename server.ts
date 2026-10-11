@@ -689,6 +689,21 @@ function saveResultsConfig() {
 
 loadResultsConfig();
 
+function getConfiguredResultsSource(): string {
+  // Only label results as API-Football when the configured URL is on its official API domains.
+  // Arbitrary/custom endpoints must not open the verified-history evidence gate.
+  try {
+    const hostname = new URL(resultsApiConfig.apiUrl).hostname.toLowerCase();
+    if (hostname === "api-football.com" || hostname.endsWith(".api-football.com") ||
+        hostname === "api-sports.io" || hostname.endsWith(".api-sports.io")) {
+      return "api-football";
+    }
+  } catch {
+    // Empty or malformed URLs are not trusted provider evidence.
+  }
+  return "custom-results-api";
+}
+
 function checkAndResetResultsApiQuota(): boolean {
   const todayStr = new Date().toISOString().split("T")[0];
   if (resultsApiConfig.callsResetDateStr !== todayStr) {
@@ -891,7 +906,7 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
             finalScore: { home: hG, away: aG },
             resultSettled: true,
             settledAt: new Date().toISOString(),
-            resultSource: usedCache ? "custom-results-api (cached)" : "custom-results-api"
+            resultSource: getConfiguredResultsSource()
           };
           totalSettled++;
         }
