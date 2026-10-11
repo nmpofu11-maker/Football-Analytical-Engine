@@ -276,9 +276,9 @@ describe("live provider validation", () => {
     }) as typeof fetch;
     try {
       assert.deepEqual(await fetchTheRundownFixtures(date), []);
-      assert.equal(calls, 8);
+      assert.equal(calls, SOCCER_SPORT_IDS.length);
       assert.deepEqual(await fetchTheRundownFixtures(date), []);
-      assert.equal(calls, 8);
+      assert.equal(calls, SOCCER_SPORT_IDS.length);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
