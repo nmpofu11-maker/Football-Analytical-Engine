@@ -2671,16 +2671,10 @@ export default function App() {
 
                     <div className="p-6 bg-white flex flex-col gap-6">
                       
-                      <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-950 p-4 rounded-xl">
-                        <div className="font-bold text-sm">Not a verified match prediction</div>
-                        <p className="text-xs mt-1">The model starts from baseline expected-goal priors. Current form, confirmed lineups, injuries, standings, and match-specific statistics are not automatically loaded into this simulator. Percentages below are mathematical model outputs, not validated betting probabilities. Model confidence remains unavailable until out-of-sample calibration is demonstrated.</p>
-                      </div>
-
-                      {simulationResult.evidenceGate === "blocked" && (
-                        <div role="status" className="bg-amber-50 border border-amber-300 text-amber-950 p-5 rounded-xl">
-                          <h4 className="font-bold text-sm">Baseline-only simulation — verified team history unavailable</h4>
-                          <p className="text-xs mt-2">The selected teams do not yet have sufficient verified settled results in the engine's history store. Score estimates and outcome percentages are withheld because these teams lack sufficient verified history and out-of-sample calibration. No match-specific forecast is available.</p>
-                          <p className="text-xs mt-2">Historical form, lineups, injuries, standings, and match statistics are not automatically loaded into this exploratory simulator. Verified result ingestion and out-of-sample calibration are still required before a forecast can be considered evidence-backed.</p>
+                      {simulationResult.evidenceGate !== "blocked" && (
+                        <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-950 p-4 rounded-xl">
+                          <div className="font-bold text-sm">Exploratory output — not a verified match prediction</div>
+                          <p className="text-xs mt-1">The model starts from baseline expected-goal priors. Current form, confirmed lineups, injuries, standings, and match-specific statistics are not automatically loaded into this simulator. Percentages are not validated betting probabilities; model confidence remains unavailable until out-of-sample calibration is demonstrated.</p>
                         </div>
                       )}
                       {simulationResult.evidenceGate !== "blocked" ? (
@@ -2748,7 +2742,8 @@ export default function App() {
                       ) : (
                         <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
                           <h4 className="font-bold text-sm">Prediction unavailable — insufficient verified evidence</h4>
-                          <p className="mt-2 text-xs">The engine will not display a scoreline or win/draw/loss percentages for this fixture until both teams have usable out-of-sample calibration evidence.</p>
+                          <p className="mt-2 text-xs">The selected teams lack sufficient verified history and out-of-sample calibration. The engine is withholding score estimates and outcome percentages; no match-specific forecast is available.</p>
+                          <p className="mt-2 text-xs">Historical form, lineups, injuries, standings, and match statistics are not automatically loaded into this simulator. Verified result ingestion and calibration are required before an evidence-backed forecast can be shown.</p>
                         </div>
                       )}
                       {/* Transparent analytical log matching 10 rules */}
