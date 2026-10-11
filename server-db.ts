@@ -263,3 +263,35 @@ export function applyCalibrationServer(homeTeam: string, awayTeam: string, homeG
     console.log(`[LEARNING SYSTEM] Calibrated coefficients for ${updatedCount} target team(s) from match ${homeTeam} vs ${awayTeam}`);
   }
 }
+
+
+// User-managed target team registry. The original 80 remain the default; additions are explicit.
+export function getTargetTeams(): string[] {
+  initDb();
+  const filePath = path.join(DATA_DIR, "db_target_teams.json");
+  try {
+    if (!fs.existsSync(filePath)) saveFileAtomic(filePath, LOCKED_80_TEAMS);
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (!Array.isArray(parsed)) return [...LOCKED_80_TEAMS];
+    const cleaned = parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map(v => v.trim());
+    return Array.from(new Map(cleaned.map(team => [team.toLowerCase(), team])).values());
+  } catch { return [...LOCKED_80_TEAMS]; }
+}
+
+export function addTargetTeam(rawName: string): { teams: string[]; added: boolean; team: string } {
+  const team = rawName.trim().replace(/\\s+/g, " ");
+  if (!team || team.length > 80 || /[<>\\r\\n]/.test(team)) throw new Error("Enter a valid team name (1–80 characters).");
+  const teams = getTargetTeams();
+  const existing = teams.find(value => value.toLowerCase() === team.toLowerCase());
+  if (existing) return { teams, added: false, team: existing };
+  if (teams.length >= 300) throw new Error("The target-team list is limited to 300 teams.");
+  const next = [...teams, team].sort((a, b) => a.localeCompare(b));
+  saveFileAtomic(path.join(DATA_DIR, "db_target_teams.json"), next);
+  const matrices = getMatrices();
+  if (!matrices[team]) matrices[team] = {
+    sample_size_matches: 0,
+    learned_coefficients: { home_advantage_multiplier: 1, form_momentum_weight: 1, volatility_index: 1, fatigue_penalty_modifier: 1 }
+  };
+  saveMatrices(matrices);
+  return { teams: next, added: true, team };
+}
