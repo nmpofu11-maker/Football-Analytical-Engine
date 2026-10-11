@@ -10,6 +10,7 @@ import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams
 import { parseBookmakerRawText } from "./src/utils/bookmakerParser";
 import { simulateMatchup } from "./src/utils/footballMath";
 import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
+import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures } from "./src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "./src/services/serverTheRundown";
 import {
@@ -1069,7 +1070,7 @@ app.get("/api/predictions/history", (req, res) => {
 app.post("/api/results/backfill", async (req, res) => {
   const startDate = String(req.body?.startDate || "");
   const endDate = String(req.body?.endDate || "");
-  const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  const validDate = (value: string) => isValidIsoDate(value);
   if (!validDate(startDate) || !validDate(endDate) || startDate > endDate) {
     return res.status(400).json({ error: "Provide valid startDate and endDate in YYYY-MM-DD format." });
   }

@@ -4,6 +4,7 @@ import { LOCKED_80_TEAMS } from "../src/data/favoriteTeams";
 import { parseBookmakerRawText } from "../src/utils/bookmakerParser";
 import { getFixtureCompositeKey } from "../src/utils/fixtureDedupe";
 import { getVerifiedTeamSampleSize } from "../src/utils/verifiedTeamSamples";
+import { isValidIsoDate } from "../src/utils/isoDate";
 import { simulateMatchup } from "../src/utils/footballMath";
 import { fetchSportApiAiFixtures } from "../src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "../src/services/serverTheRundown";
@@ -263,5 +264,18 @@ describe("live provider validation", () => {
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
       else process.env.THERUNDOWN_KEY = oldKey;
     }
+  });
+});
+
+describe("ISO calendar date validation", () => {
+  it("accepts valid YYYY-MM-DD dates and rejects malformed or impossible dates", () => {
+    assert.equal(isValidIsoDate("2026-10-11"), true);
+    assert.equal(isValidIsoDate("2024-02-29"), true);
+    assert.equal(isValidIsoDate("2026-02-29"), false);
+    assert.equal(isValidIsoDate("2026-13-01"), false);
+    assert.equal(isValidIsoDate("11-10-2026"), false);
+    assert.equal(isValidIsoDate("2026-1-01"), false);
+    assert.equal(isValidIsoDate(""), false);
+    assert.equal(isValidIsoDate(null), false);
   });
 });
