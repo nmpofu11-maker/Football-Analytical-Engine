@@ -291,6 +291,30 @@ describe("live provider validation", () => {
     }
   });
 
+  it("fails fast on TheRundown network errors and reports safe diagnostics", async () => {
+    const oldKey = process.env.THERUNDOWN_KEY;
+    const oldFetch = globalThis.fetch;
+    let calls = 0;
+    const date = new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10);
+    process.env.THERUNDOWN_KEY = "test-key";
+    globalThis.fetch = (async () => {
+      calls += 1;
+      throw new Error("simulated network failure");
+    }) as typeof fetch;
+    try {
+      assert.deepEqual(await fetchTheRundownFixtures(date), []);
+      assert.equal(calls, 1);
+      const diagnostics = getTheRundownProviderDiagnostics();
+      assert.equal(diagnostics.state, "request_error");
+      assert.equal(diagnostics.lastErrorCode, "request_failed");
+      assert.equal(diagnostics.lastHttpStatus, null);
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
+      else process.env.THERUNDOWN_KEY = oldKey;
+    }
+  });
+
   it("backs off after TheRundown rate limiting instead of calling every competition", async () => {
     const oldKey = process.env.THERUNDOWN_KEY;
     const oldFetch = globalThis.fetch;
