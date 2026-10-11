@@ -1228,7 +1228,6 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       .replace(/\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\b/gi, "")
       .replace(/[^a-z0-9]/g, "");
   };
-    : "";
   const targetTeamNames = new Set(targetTeams.map(normalizeTargetName));
   const savedResultsWithTargetTeam = results.filter(record => {
     if (!record || typeof record !== "object") return false;
