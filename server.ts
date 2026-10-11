@@ -318,7 +318,8 @@ app.post("/api/digest", async (req, res) => {
 
     const client = getGeminiClient();
 
-    // We pass the 80 target teams to Gemini to help map them accurately even with abbreviations
+    // Use the original 80 plus any teams explicitly added by the user.
+    const targetTeams = getTargetTeams();
     const systemPrompt = `You are a bias-free football statistics parser.
 Your task is to ingest a scraped sports payload (HTML or text) and extract match details, physical pitch facts, expected goals (xG), possession, and team circumstances.
 
