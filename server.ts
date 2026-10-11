@@ -1214,8 +1214,9 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     resultsStoreReadable = false;
   }
 
+  const targetTeams = getTargetTeams();
   const verifiedSamplesByTeam: Record<string, number> = {};
-  for (const team of LOCKED_80_TEAMS) {
+  for (const team of targetTeams) {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
