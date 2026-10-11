@@ -16,7 +16,7 @@ import {
   getFixtures, saveFixtures,
   getPredictions, savePredictions, addPrediction,
   getCoefficientHistory, saveCoefficientHistory, addHistoryEntry,
-  getMatrices, saveMatrices, applyCalibrationServer
+  getMatrices, saveMatrices, applyCalibrationServer, getTargetTeams, addTargetTeam
 } from "./server-db";
 
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<{ text: string; totalPages: number }> {
@@ -1186,6 +1186,20 @@ app.get("/api/results/verified", (req, res) => {
 
 // Read-only, secret-safe evidence readiness report for deployment troubleshooting.
 // Historical result counts and model calibration counts are intentionally reported separately.
+app.get("/api/teams", (_req, res) => {
+  return res.json({ teams: getTargetTeams(), defaultTeams: LOCKED_80_TEAMS.length });
+});
+
+app.post("/api/teams", (req, res) => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    const result = addTargetTeam(name);
+    return res.status(result.added ? 201 : 200).json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || "Could not add target team." });
+  }
+});
+
 app.get("/api/diagnostics/evidence", (req, res) => {
   const resultsFile = path.join(DATA_DIR, "db_results.json");
   let results: any[] = [];
@@ -1205,7 +1219,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
-  const targetTeamNames = new Set(LOCKED_80_TEAMS.map(team => team.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]/g, "")));
+  const targetTeamNames = new Set(targetTeams.map(team => team.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]/g, "")));
   const savedResultsWithTargetTeam = results.filter(record => {
     if (!record || typeof record !== "object") return false;
     const normalize = (value: unknown) => typeof value === "string"
@@ -1241,7 +1255,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     historicalEvidence: {
       resultsStoreReadable,
       storedResultRecords: results.length,
-      targetTeams: LOCKED_80_TEAMS.length,
+      targetTeams: targetTeams.length,\n      defaultTeams: LOCKED_80_TEAMS.length,\n      customTeams: targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())),
       teamsWithVerifiedHistory,
       savedResultsWithTargetTeam,
       verifiedSamplesByTeam
