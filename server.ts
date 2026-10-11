@@ -1,5 +1,5 @@
 import express from "express";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
@@ -109,6 +109,55 @@ function ensureDataDir() {
   }
 }
 
+function inspectStoragePath() {
+  let writable = false;
+  let mountPoint = "";
+  let mountType = "unknown";
+  let mountedStorageDetected = false;
+
+  try {
+    ensureDataDir();
+    const probeFile = path.join(DATA_DIR, `.storage-health-${process.pid}-${randomUUID()}`);
+    fs.writeFileSync(probeFile, "ok", { flag: "wx" });
+    fs.unlinkSync(probeFile);
+    writable = true;
+  } catch {
+    writable = false;
+  }
+
+  try {
+    const mounts = fs.readFileSync("/proc/mounts", "utf-8").split("\n")
+      .map(line => {
+        const fields = line.split(" ");
+        return {
+          source: fields[0] || "",
+          point: (fields[1] || "").replace(/\\040/g, " "),
+          type: fields[2] || ""
+        };
+      })
+      .filter(mount => mount.point && (DATA_DIR === mount.point || DATA_DIR.startsWith(mount.point.endsWith(path.sep) ? mount.point : mount.point + path.sep)))
+      .sort((a, b) => b.point.length - a.point.length);
+
+    const selected = mounts[0];
+    if (selected) {
+      mountPoint = selected.point;
+      mountType = selected.type;
+      const isExternalPersistentType = /gcsfuse|fuse\\.gcsfuse|nfs4?|ceph|efs|azureblob|fuse\\.s3fs/i.test(`${selected.type} ${selected.source}`);
+      mountedStorageDetected = selected.point !== "/" && isExternalPersistentType;
+    }
+  } catch {
+    // Some managed runtimes do not expose /proc/mounts. Do not infer persistence.
+  }
+
+  return {
+    writable,
+    mountType,
+    mountedStorageDetected,
+    persistenceVerified: writable && mountedStorageDetected,
+    configuredPath: process.env.DATA_DIR ? "custom" : "default"
+  };
+}
+
 function getInitialBaselineFixtures(): any[] {
   return [];
 }
@@ -136,10 +185,14 @@ function loadPersistedFixturesFromDisk(): any[] {
 
 function saveFixturesToDisk(fixtures: any[]): boolean {
   ensureDataDir();
+  const temporaryFile = `${MANIFEST_FILE}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(MANIFEST_FILE, JSON.stringify(fixtures, null, 2), "utf-8");
+    fs.writeFileSync(temporaryFile, JSON.stringify(fixtures, null, 2), { encoding: "utf-8", flag: "wx" });
+    fs.renameSync(temporaryFile, MANIFEST_FILE);
     return true;
   } catch (e) {
+    try { if (fs.existsSync(temporaryFile)) fs.unlinkSync(temporaryFile); } catch {}
+    console.error("[STORAGE] Failed to persist fixture manifest:", e);
     return false;
   }
 }
@@ -1266,6 +1319,8 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       || host.endsWith(".api-sports.io");
   } catch {}
 
+  const storageHealth = inspectStoragePath();
+
   return res.json({
     generatedAt: new Date().toISOString(),
     providers: {
@@ -1274,7 +1329,9 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
       resultsEndpointConfigured: Boolean(configuredEndpoint),
       dataDirectoryConfigured: Boolean(process.env.DATA_DIR),
-      dataDirectoryPersistence: process.env.DATA_DIR ? "custom path configured; verify it is a persistent mounted volume" : "default ./data path; may be ephemeral on container/serverless hosts",
+      dataDirectoryPersistence: storageHealth.persistenceVerified
+        ? "persistent mounted storage detected"
+        : "persistence not verified; configure a persistent mounted volume and confirm this diagnostic again",
       officialResultsEndpointConfigured
     },
     historicalEvidence: {
@@ -1299,8 +1356,15 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       note: "Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
     },
     storage: {
-      mode: "local-filesystem",
-      persistenceWarning: "Files may be ephemeral on container/serverless deployments unless a persistent volume or external database is configured."
+      mode: storageHealth.mountedStorageDetected ? "mounted-filesystem" : "local-filesystem",
+      configuredPath: storageHealth.configuredPath,
+      writable: storageHealth.writable,
+      mountType: storageHealth.mountType,
+      mountedStorageDetected: storageHealth.mountedStorageDetected,
+      persistenceVerified: storageHealth.persistenceVerified,
+      persistenceWarning: storageHealth.persistenceVerified
+        ? "A recognized persistent mount is writable. Confirm data survives a service revision rollout/restart."
+        : "Storage persistence is not verified by the running container. A writable local directory can still be ephemeral on Cloud Run."
     }
   });
 });
