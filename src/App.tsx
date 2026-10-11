@@ -84,7 +84,7 @@ export default function App() {
 
   // Helper to check if a team is on our locked 80 favorites list
   const isFavTeam = (name: string) => {
-    return LOCKED_80_TEAMS.some(t => t.toLowerCase() === name.toLowerCase());
+    return targetTeams.some(t => t.toLowerCase() === name.toLowerCase());
   };
 
   // --- 1. Core State Management ---
@@ -106,8 +106,17 @@ export default function App() {
   const [evidenceDiagnostics, setEvidenceDiagnostics] = useState<any | null>(null);
   const [evidenceDiagnosticsError, setEvidenceDiagnosticsError] = useState("");
   const [isRefreshingEvidenceDiagnostics, setIsRefreshingEvidenceDiagnostics] = useState(false);
+  const [targetTeams, setTargetTeams] = useState<string[]>(LOCKED_80_TEAMS);
+  const [newTargetTeamName, setNewTargetTeamName] = useState("");
+  const [targetTeamMessage, setTargetTeamMessage] = useState("");
+  const [isAddingTargetTeam, setIsAddingTargetTeam] = useState(false);
 
   useEffect(() => {
+    secureApiFetch("/api/teams")
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data.teams)) setTargetTeams(data.teams); })
+      .catch(e => console.warn("Failed to load managed target teams:", e));
+
     secureApiFetch("/api/matrices")
       .then(res => res.json())
       .then(data => {
@@ -132,6 +141,27 @@ export default function App() {
       })
       .catch(err => console.warn("Failed to load coefficient history:", err));
   }, [trendTeam]);
+
+  const addTargetTeam = async () => {
+    const name = newTargetTeamName.trim();
+    if (!name) { setTargetTeamMessage("Enter a team name first."); return; }
+    setIsAddingTargetTeam(true);
+    setTargetTeamMessage("");
+    try {
+      const response = await secureApiFetch("/api/teams", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not add team.");
+      setTargetTeams(Array.isArray(data.teams) ? data.teams : [...targetTeams, data.team]);
+      setNewTargetTeamName("");
+      setTargetTeamMessage(data.added ? `${data.team} added. Its evidence count starts at zero; this does not calibrate the model.` : `${data.team} is already on the target list.`);
+      const matrixResponse = await secureApiFetch("/api/matrices");
+      const matrixData = await matrixResponse.json();
+      if (matrixData.matrices) { setTeamMatrices(matrixData.matrices); localStorage.setItem("football_engine_matrices", JSON.stringify(matrixData.matrices)); }
+      await refreshEvidenceDiagnostics();
+    } catch (error: any) {
+      setTargetTeamMessage(error?.message || "Could not add team. Check admin access and server configuration.");
+    } finally { setIsAddingTargetTeam(false); }
+  };
 
   const refreshEvidenceDiagnostics = async () => {
     setIsRefreshingEvidenceDiagnostics(true);
@@ -515,7 +545,7 @@ export default function App() {
 
   // Filtered target list
   const filteredTeamsList = useMemo(() => {
-    return LOCKED_80_TEAMS.filter(team => {
+    return targetTeams.filter(team => {
       const matchesSearch = team.toLowerCase().includes(matrixSearch.toLowerCase());
       if (filterFastPaced) {
         return matchesSearch && isFastPacedLeagueTeam(team);
@@ -1645,6 +1675,19 @@ export default function App() {
                   )}
                 </section>
 
+                <section className="rounded-xl border border-[#CBD5E1] bg-white p-4 flex flex-col gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#0F172A]">Manage target teams</h3>
+                    <p className="text-xs text-[#64748B] mt-1">The original 80 teams stay enabled. Add a team only when you want to track it; adding a team creates an uncalibrated matrix and never unlocks predictions by itself.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input aria-label="New target team name" value={newTargetTeamName} onChange={e => setNewTargetTeamName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addTargetTeam(); }} maxLength={80} placeholder="Enter team name (e.g. Liverpool)" className="min-w-0 flex-1 rounded-lg border border-[#CBD5E1] px-3 py-2 text-sm" />
+                    <button type="button" onClick={() => void addTargetTeam()} disabled={isAddingTargetTeam || !newTargetTeamName.trim()} className="rounded-lg bg-[#15803D] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{isAddingTargetTeam ? "Adding…" : "Add team"}</button>
+                  </div>
+                  {targetTeamMessage && <p role="status" className="text-xs text-[#475569]">{targetTeamMessage}</p>}
+                  <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-[#F1F5F9] px-3 py-1 font-semibold text-[#334155]">Active teams: {targetTeams.length}</span><span className="rounded-full bg-[#F1F5F9] px-3 py-1 text-[#334155]">Original list: 80</span><span className="rounded-full bg-[#F1F5F9] px-3 py-1 text-[#334155]">Added teams: {targetTeams.filter(team => !LOCKED_80_TEAMS.some(defaultTeam => defaultTeam.toLowerCase() === team.toLowerCase())).length}</span></div>
+                </section>
+
                 {/* Summary Metrics Banner */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 flex flex-col gap-1">
@@ -2333,8 +2376,8 @@ export default function App() {
 
                     <div className="flex flex-col gap-3">
                       {digestedMatches.map((report) => {
-                        const homeMatched = LOCKED_80_TEAMS.includes(report.homeTeam);
-                        const awayMatched = LOCKED_80_TEAMS.includes(report.awayTeam);
+                        const homeMatched = targetTeams.some(team => team.toLowerCase() === report.homeTeam.toLowerCase());
+                        const awayMatched = targetTeams.some(team => team.toLowerCase() === report.awayTeam.toLowerCase());
                         
                         return (
                           <div key={report.id} className="border border-[#E2E8F0] rounded-xl p-4 bg-[#F8FAFC] flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2615,7 +2658,7 @@ export default function App() {
                       onChange={(e) => setPredHomeTeam(e.target.value)}
                       className="text-xs p-3 border border-[#E2E8F0] rounded-xl bg-white focus:ring-2 focus:ring-[#15803D]/20 focus:border-[#15803D]"
                     >
-                      {LOCKED_80_TEAMS.map(team => {
+                      {targetTeams.map(team => {
                         const isToday = todaysTeams.has(team);
                         const isFast = isFastPacedLeagueTeam(team);
                         return (
@@ -2634,7 +2677,7 @@ export default function App() {
                       onChange={(e) => setPredAwayTeam(e.target.value)}
                       className="text-xs p-3 border border-[#E2E8F0] rounded-xl bg-white focus:ring-2 focus:ring-[#15803D]/20 focus:border-[#15803D]"
                     >
-                      {LOCKED_80_TEAMS.map(team => {
+                      {targetTeams.map(team => {
                         const isToday = todaysTeams.has(team);
                         const isFast = isFastPacedLeagueTeam(team);
                         return (
@@ -3039,7 +3082,7 @@ export default function App() {
                       onChange={(e) => setTrendTeam(e.target.value)}
                       className="text-xs p-2 border border-[#E2E8F0] rounded-lg bg-white text-[#334155] focus:ring-2 focus:ring-[#15803D]/20 focus:border-[#15803D] cursor-pointer"
                     >
-                      {LOCKED_80_TEAMS.map((teamName) => (
+                      {targetTeams.map((teamName) => (
                         <option key={teamName} value={teamName}>
                           {teamName}
                         </option>
