@@ -92,7 +92,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const id = f.id ?? f.fixture_id ?? f.event_id;
       if (id === undefined || id === null || String(id).trim() === "") continue;
 
-      const rawStatus = String(f.status ?? f.match_status ?? f.fixture_status ?? "NS").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+      const rawStatus = String(f.status ?? f.match_status ?? f.fixture_status ?? "NS").trim().toUpperCase().replace(/[\s-]+/g, "_");
       const homeRaw = f.home_score ?? f.homeGoals ?? f.home_goals ?? f.scores?.home ?? f.score?.home;
       const awayRaw = f.away_score ?? f.awayGoals ?? f.away_goals ?? f.scores?.away ?? f.score?.away;
       const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
