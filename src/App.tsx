@@ -1661,6 +1661,7 @@ export default function App() {
                           <p className="font-bold text-[#334155] mb-2">Readiness notes</p>
                           <p className="text-[#475569]">{evidenceDiagnostics.backfill?.note}</p>
                           <p className="mt-2 text-amber-800">{evidenceDiagnostics.storage?.persistenceWarning}</p>
+                          <p className="mt-2 text-[#475569]">{evidenceDiagnostics.providers?.dataDirectoryPersistence || "Storage path not reported; confirm the deployed revision."}</p>
                           {evidenceDiagnostics.historicalEvidence?.resultsStoreReadable === false && (
                             <p role="alert" className="mt-2 font-bold text-red-700">The historical results store could not be read.</p>
                           )}
