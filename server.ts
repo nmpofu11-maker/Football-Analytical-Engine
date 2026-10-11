@@ -164,6 +164,12 @@ function generatePreMatchPredictions(fixtures: any[]) {
   let added = 0;
   for (const f of fixtures) {
     if (f.sourceConfidence === "unknown") continue;
+    const status = String(f.status ?? "").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+    const upcomingStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"]);
+    if (!upcomingStatuses.has(status)) continue;
+    const kickoffMs = Date.parse(`${f.date}T${f.time || "00:00"}:00Z`);
+    // Do not create a new pre-match prediction for a fixture whose kickoff has passed.
+    if (!Number.isFinite(kickoffMs) || kickoffMs <= Date.now()) continue;
     const matchKey = getCompositeKeyServer(f.homeTeam, f.awayTeam, f.date);
     const fixtureId = String(f.id ?? "");
     const alreadyExists = existingKeys.has(matchKey) || existingKeys.has(fixtureId);
