@@ -183,6 +183,15 @@ function generatePreMatchPredictions(fixtures: any[]) {
     const fixtureId = String(f.id ?? "");
     const alreadyExists = existingKeys.has(matchKey) || existingKeys.has(fixtureId);
     if (!alreadyExists) {
+      // Do not persist the same baseline-prior output as if it were a fixture-specific prediction.
+      // Only teams with non-zero out-of-sample calibration samples can enter the prediction history.
+      const matrices = getMatrices();
+      const homeSamples = Number(matrices[f.homeTeam]?.sample_size_matches || 0);
+      const awaySamples = Number(matrices[f.awayTeam]?.sample_size_matches || 0);
+      if (homeSamples < 1 || awaySamples < 1) {
+        console.log(`[PREDICTION ENGINE] Skipping ${f.homeTeam} vs ${f.awayTeam}: verified out-of-sample calibration is unavailable.`);
+        continue;
+      }
       const sim = simulateMatchupServer(f);
       addPrediction({
         fixture_id: matchKey || String(f.id),
@@ -1028,7 +1037,23 @@ function recordSettledMatchHistoryServer(manifest: any[]) {
 
 // API Endpoints for history & matrices
 app.get("/api/predictions/history", (req, res) => {
-  return res.json({ predictions: getPredictions() });
+  // Do not expose legacy baseline-only records as actionable predictions.
+  // A history item is visible only when its fixture can be matched and both teams
+  // currently have at least one calibrated, out-of-sample result in the model store.
+  const matrices = getMatrices();
+  const fixtures = loadPersistedFixturesFromDisk();
+  const fixtureByKey = new Map<string, any>();
+  for (const fixture of fixtures) {
+    if (!fixture?.homeTeam || !fixture?.awayTeam || !fixture?.date) continue;
+    fixtureByKey.set(getCompositeKeyServer(fixture.homeTeam, fixture.awayTeam, fixture.date), fixture);
+  }
+  const predictions = getPredictions().filter((prediction: any) => {
+    const fixture = fixtureByKey.get(String(prediction.fixture_id || ""));
+    if (!fixture) return false;
+    return Number(matrices[fixture.homeTeam]?.sample_size_matches || 0) > 0
+      && Number(matrices[fixture.awayTeam]?.sample_size_matches || 0) > 0;
+  });
+  return res.json({ predictions, withheldCount: getPredictions().length - predictions.length });
 });
 
 // Bounded historical backfill using the configured official API-Football/API-Sports fixtures endpoint.
