@@ -914,11 +914,16 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
         getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
         (r.resultSettled === true || r.status === "FT")
       );
-      if (found && found.homeGoals !== undefined && found.awayGoals !== undefined) {
+      if (found) {
+        const rawHome = found.homeGoals;
+        const rawAway = found.awayGoals;
+        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+        if (!Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) continue;
         updatedManifest[i] = {
           ...match,
           status: "FT",
-          finalScore: { home: Number(found.homeGoals), away: Number(found.awayGoals) },
+          finalScore: { home, away },
           resultSettled: true,
           settledAt: new Date().toISOString(),
           resultSource: found.source || "trusted-provider"
