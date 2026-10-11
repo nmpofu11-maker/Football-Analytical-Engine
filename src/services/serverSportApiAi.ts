@@ -92,15 +92,20 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const id = f.id ?? f.fixture_id ?? f.event_id;
       if (id === undefined || id === null || String(id).trim() === "") continue;
 
-      const rawStatus = String(f.status ?? f.match_status ?? "NS").toUpperCase();
-      const homeRaw = f.home_score ?? f.homeGoals ?? f.home_goals ?? f.scores?.home;
-      const awayRaw = f.away_score ?? f.awayGoals ?? f.away_goals ?? f.scores?.away;
+      const rawStatus = String(f.status ?? f.match_status ?? f.fixture_status ?? "NS").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+      const homeRaw = f.home_score ?? f.homeGoals ?? f.home_goals ?? f.scores?.home ?? f.score?.home;
+      const awayRaw = f.away_score ?? f.awayGoals ?? f.away_goals ?? f.scores?.away ?? f.score?.away;
       const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
       const awayScore = awayRaw === null || awayRaw === undefined || awayRaw === "" ? undefined : Number(awayRaw);
       const validScores = Number.isInteger(homeScore) && homeScore! >= 0 && Number.isInteger(awayScore) && awayScore! >= 0;
-      const isFinished = ["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL"].includes(rawStatus) || (validScores && !["LIVE", "INPLAY", "IN_PROGRESS", "NS", "SCHEDULED"].includes(rawStatus));
-      const competitionValue = f.competition ?? f.league ?? f.tournament;
-      const competition = typeof competitionValue === "string" ? competitionValue.trim() : readTeam(competitionValue);
+      const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"]);
+      const liveStatuses = new Set(["LIVE", "INPLAY", "IN_PROGRESS", "1H", "2H", "HT", "ET", "PEN_LIVE"]);
+      const finishedStatuses = new Set(["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL", "MATCH_FINISHED"]);
+      // Only explicit final statuses settle results. Some feeds send 0-0 placeholders for upcoming fixtures.
+      const isFinished = finishedStatuses.has(rawStatus);
+      const hasUsableScore = validScores && !scheduledStatuses.has(rawStatus);
+      const competitionCandidates = [f.competition, f.league, f.tournament, f.competition_name, f.league_name, f.tournament_name, f.competition?.name, f.league?.name, f.tournament?.name, f.competition?.competition_name, f.league?.league_name, f.tournament?.tournament_name, f.competition?.title, f.league?.title, f.tournament?.title];
+      const competition = competitionCandidates.find((value) => typeof value === "string" && value.trim())?.trim() || competitionCandidates.find((value) => value && typeof value === "object")?.name?.trim?.() || "";
 
       fixtures.push({
         id: String(id),
@@ -109,9 +114,9 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         homeTeam: home,
         awayTeam: away,
         competition: competition || "Competition unavailable",
-        status: isFinished ? "FT" : rawStatus,
-        homeGoals: validScores ? homeScore : undefined,
-        awayGoals: validScores ? awayScore : undefined,
+        status: isFinished ? "FT" : liveStatuses.has(rawStatus) ? "LIVE" : rawStatus,
+        homeGoals: hasUsableScore ? homeScore : undefined,
+        awayGoals: hasUsableScore ? awayScore : undefined,
         resultSettled: isFinished,
         source: "sportapi-ai",
         sourceConfidence: "verified",
