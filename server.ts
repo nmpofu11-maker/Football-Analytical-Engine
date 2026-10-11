@@ -99,7 +99,7 @@ function getCompositeKeyServer(home: string, away: string, date: string): string
 }
 
 // Server Disk Persistence (Zero Data Loss) via server-db.ts
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), "data"));
 const MANIFEST_FILE = path.join(DATA_DIR, "fixtures-manifest.json");
 
 function ensureDataDir() {
