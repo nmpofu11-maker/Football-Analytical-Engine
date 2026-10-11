@@ -23,12 +23,15 @@ export function simulateMatchup(
   awaySampleSize: number
 ): SimulationResult {
   const reasons: string[] = [];
+  const evidenceGate: "open" | "blocked" = homeSampleSize > 0 && awaySampleSize > 0 ? "open" : "blocked";
   let homeXG = 1.40;
   let awayXG = 1.20;
 
   reasons.push("Baseline model prior applied; no bookmaker odds are used.");
-  if (homeSampleSize <= 0 || awaySampleSize <= 0) {
-    reasons.push("Historical calibration is insufficient for at least one team; confidence is unavailable.");
+  if (evidenceGate === "blocked") {
+    reasons.push("Prediction blocked: verified historical samples are missing for at least one team. Baseline estimates are withheld from the UI.");
+  } else {
+    reasons.push("Historical samples exist for both teams, but the output remains exploratory until match-specific inputs and out-of-sample calibration are verified.");
   }
 
   homeXG *= homeCoeffs.form_momentum_weight;
@@ -114,7 +117,8 @@ export function simulateMatchup(
     homeConfidenceUpper: null,
     awayConfidenceLower: null,
     awayConfidenceUpper: null,
-    confidenceStatus: "insufficient-data"
+    confidenceStatus: "insufficient-data",
+    evidenceGate
   };
 }
 
