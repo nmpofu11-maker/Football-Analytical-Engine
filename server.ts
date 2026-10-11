@@ -1195,7 +1195,7 @@ app.post("/api/results/backfill", async (req, res) => {
       fetched += items.length;
       for (const item of items) {
         const status = String(item?.fixture?.status?.short ?? item?.status ?? item?.match_status ?? "").toUpperCase();
-        if (!["FT", "AET", "PEN", "FINISHED", "FINAL", "FULLTIME", "STATUS_FINAL"].includes(status)) { skipped++; continue; }
+        if (!["FT", "AET", "PEN", "FINISHED", "FINAL", "FULLTIME", "FULL_TIME", "STATUS_FINAL", "STATUS_FULL_TIME", "STATUS_FINISHED"].includes(status)) { skipped++; continue; }
         const homeTeam = String(item?.teams?.home?.name ?? item?.homeTeam ?? item?.home_team ?? "").trim();
         const awayTeam = String(item?.teams?.away?.name ?? item?.awayTeam ?? item?.away_team ?? "").trim();
         const rawHome = item?.goals?.home ?? item?.homeGoals ?? item?.home_score;
