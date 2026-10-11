@@ -56,9 +56,11 @@ async function tokenRequest(fields: Record<string, string>): Promise<TokenRespon
   const body = new URLSearchParams({
     client_id: c.clientId,
     client_secret: c.clientSecret,
-    redirect_uri: c.redirectUri,
     ...fields,
   });
+  // redirect_uri is required for authorization-code redemption, but refresh
+  // token grants should use the original app registration without repeating it.
+  if (fields.grant_type === "authorization_code") body.set("redirect_uri", c.redirectUri);
   const response = await fetch(`${IDENTITY_ROOT}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
