@@ -98,7 +98,8 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
       const awayScore = awayRaw === null || awayRaw === undefined || awayRaw === "" ? undefined : Number(awayRaw);
       const validScores = Number.isInteger(homeScore) && homeScore! >= 0 && Number.isInteger(awayScore) && awayScore! >= 0;
-      const liveStatuses = new Set(["LIVE", "INPLAY", "IN_PROGRESS", "1H", "2H", "HT", "ET", "PEN_LIVE"]);
+      const liveStatuses = new Set(["LIVE", "INPLAY", "IN_PROGRESS", "1H", "2H", "HT", "ET", "PEN_LIVE"]); 
+      const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
       const finishedStatuses = new Set(["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL", "MATCH_FINISHED"]);
       // Only explicit final statuses settle results. Some feeds send 0-0 placeholders for upcoming fixtures.
       const isFinished = finishedStatuses.has(rawStatus);
@@ -113,7 +114,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         homeTeam: home,
         awayTeam: away,
         competition: competition || "Competition unavailable",
-        status: isFinished ? "FT" : liveStatuses.has(rawStatus) ? "LIVE" : rawStatus,
+        status: isFinished ? "FT" : liveStatuses.has(rawStatus) ? "LIVE" : scheduledStatuses.has(rawStatus) ? "NS" : rawStatus,
         homeGoals: hasUsableScore ? homeScore : undefined,
         awayGoals: hasUsableScore ? awayScore : undefined,
         resultSettled: isFinished,
