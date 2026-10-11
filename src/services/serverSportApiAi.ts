@@ -44,6 +44,10 @@ function isPlaceholderTeam(name: string): boolean {
   return !name || /^(home|away|team ?[ab]|tbd|unknown|n\/a|none)$/i.test(name);
 }
 
+function isPlaceholderCompetition(name: string): boolean {
+  return !name.trim() || /^(unknown|unknown competition|competition unavailable|unavailable|not available|n\/a|na|none|tbd|league fixture)$/i.test(name.trim());
+}
+
 export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApiAiFixture[]> {
   const apiKey = process.env.SPORTAPI_AI_KEY || "";
   if (!apiKey) {
@@ -110,9 +114,9 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const hasUsableScore = validScores && (isFinished || isLive);
       const competitionCandidates = [f.competition, f.league, f.tournament, f.competition_name, f.league_name, f.tournament_name, f.competition?.name, f.league?.name, f.tournament?.name, f.competition?.competition_name, f.league?.league_name, f.tournament?.tournament_name, f.competition?.title, f.league?.title, f.tournament?.title];
       const competition = competitionCandidates.find((value) => typeof value === "string" && value.trim())?.trim() || competitionCandidates.find((value) => value && typeof value === "object")?.name?.trim?.() || "";
-      // A fixture without competition metadata is incomplete; don't label it verified
-      // or leak a placeholder label into the user's trusted fixture slate.
-      if (!competition) continue;
+      // A fixture without real competition metadata is incomplete; don't label it
+      // verified or leak generic provider placeholders into the trusted fixture slate.
+      if (isPlaceholderCompetition(competition)) continue;
 
       fixtures.push({
         id: String(id),
