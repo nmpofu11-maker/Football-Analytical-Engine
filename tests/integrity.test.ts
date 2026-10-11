@@ -183,11 +183,12 @@ describe("live provider validation", () => {
       { id: "missing-competition", home_team: "Brighton", away_team: "West Ham", datetime: "2026-10-10T13:30:00Z" },
       { id: "placeholder-competition", home_team: "Everton", away_team: "Fulham", datetime: "2026-10-10T14:00:00Z", competition: "Competition unavailable" },
       { id: "scheduled-zero", home_team: "Liverpool", away_team: "Manchester City", datetime: "2026-10-10T15:00:00Z", status: "SCHEDULED", home_score: 0, away_score: 0, league: { id: 39, name: "Premier League" } },
-      { id: "finished", home_team: "Napoli", away_team: "Roma", datetime: "2026-10-10T18:00:00Z", status: "FT", home_score: 2, away_score: 1, competition: { id: 135, name: "Serie A" } }
+      { id: "finished", home_team: "Napoli", away_team: "Roma", datetime: "2026-10-10T18:00:00Z", status: "STATUS_FULL_TIME", home_score: 2, away_score: 1, competition: { id: 135, name: "Serie A" } },
+      { id: "finished-no-score", home_team: "Everton", away_team: "Fulham", datetime: "2026-10-10T19:00:00Z", status: "STATUS_FULL_TIME", competition: { name: "Premier League" } }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
       const fixtures = await fetchSportApiAiFixtures("2026-10-10");
-      assert.equal(fixtures.length, 3);
+      assert.equal(fixtures.length, 4);
       assert.equal(fixtures[0].id, "valid");
       assert.equal(fixtures[0].homeTeam, "Arsenal");
       assert.equal(fixtures[0].awayTeam, "Chelsea");
@@ -207,6 +208,10 @@ describe("live provider validation", () => {
       assert.equal(finished.homeGoals, 2);
       assert.equal(finished.awayGoals, 1);
       assert.equal(finished.resultSettled, true);
+      const finishedWithoutScore = fixtures.find(f => f.id === "finished-no-score")!;
+      assert.equal(finishedWithoutScore.status, "FT");
+      assert.equal(finishedWithoutScore.homeGoals, undefined);
+      assert.equal(finishedWithoutScore.resultSettled, false);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
@@ -246,7 +251,8 @@ describe("live provider validation", () => {
       { event_date: "2026-10-10T13:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
       { event_id: "valid", event_date: "2026-10-10T14:00:00Z", teams: [{ is_home: true, name: "Arsenal" }, { is_home: false, name: "Chelsea" }] },
       { event_id: "scheduled-zero", event_date: "2026-10-10T15:00:00Z", status_type: "STATUS_SCHEDULED", score: { score_home: 0, score_away: 0, event_status: "STATUS_SCHEDULED" }, teams: [{ is_home: true, name: "Liverpool" }, { is_home: false, name: "Manchester City" }] },
-      { event_id: "finished", event_date: "2026-10-10T16:00:00Z", status_type: "STATUS_FINAL", score: { score_home: 2, score_away: 1, event_status: "STATUS_FINAL" }, teams: [{ is_home: true, name: "Napoli" }, { is_home: false, name: "Roma" }] }
+      { event_id: "finished", event_date: "2026-10-10T16:00:00Z", status_type: "STATUS_FULL_TIME", score: { score_home: 2, score_away: 1, event_status: "STATUS_FULL_TIME" }, teams: [{ is_home: true, name: "Napoli" }, { is_home: false, name: "Roma" }] },
+      { event_id: "finished-no-score", event_date: "2026-10-10T17:00:00Z", status_type: "STATUS_FULL_TIME", score: { event_status: "STATUS_FULL_TIME" }, teams: [{ is_home: true, name: "Everton" }, { is_home: false, name: "Fulham" }] }
     ] }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     try {
       const fixtures = await fetchTheRundownFixtures("2026-10-10");
@@ -259,9 +265,14 @@ describe("live provider validation", () => {
       assert.equal(scheduled.awayGoals, undefined);
       assert.equal(scheduled.resultSettled, false);
       const finished = fixtures.find(f => f.id === "finished")!;
+      assert.equal(finished.status, "FT");
       assert.equal(finished.homeGoals, 2);
       assert.equal(finished.awayGoals, 1);
       assert.equal(finished.resultSettled, true);
+      const finishedWithoutScore = fixtures.find(f => f.id === "finished-no-score")!;
+      assert.equal(finishedWithoutScore.status, "FT");
+      assert.equal(finishedWithoutScore.homeGoals, undefined);
+      assert.equal(finishedWithoutScore.resultSettled, false);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
