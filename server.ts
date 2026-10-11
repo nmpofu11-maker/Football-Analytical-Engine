@@ -1205,6 +1205,14 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     verifiedSamplesByTeam[team] = getVerifiedTeamSampleSize(results, team);
   }
   const teamsWithVerifiedHistory = Object.values(verifiedSamplesByTeam).filter(count => count > 0).length;
+  const targetTeamNames = new Set(LOCKED_80_TEAMS.map(team => team.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]/g, "")));
+  const savedResultsWithTargetTeam = results.filter(record => {
+    if (!record || typeof record !== "object") return false;
+    const normalize = (value: unknown) => typeof value === "string"
+      ? value.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/\\b(fc|cf|sc|afc|ac|ssc|cd|fk|sk|bk|if|ff)\\b/gi, "").replace(/[^a-z0-9]/g, "")
+      : "";
+    return targetTeamNames.has(normalize(record.homeTeam)) || targetTeamNames.has(normalize(record.awayTeam));
+  }).length;
   const matrices = getMatrices();
   const calibratedTeams = Object.entries(matrices)
     .filter(([, matrix]: [string, any]) => Number(matrix?.sample_size_matches || 0) > 0)
@@ -1235,6 +1243,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       storedResultRecords: results.length,
       targetTeams: LOCKED_80_TEAMS.length,
       teamsWithVerifiedHistory,
+      savedResultsWithTargetTeam,
       verifiedSamplesByTeam
     },
     modelReadiness: {
