@@ -66,9 +66,10 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         const homeScore = homeRaw === null || homeRaw === undefined || homeRaw === "" ? undefined : Number(homeRaw);
         const awayScore = awayRaw === null || awayRaw === undefined || awayRaw === "" ? undefined : Number(awayRaw);
         const validScores = Number.isInteger(homeScore) && homeScore! >= 0 && Number.isInteger(awayScore) && awayScore! >= 0;
-        const statusType = String(scores.event_status ?? ev.status_type ?? ev.status ?? "").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+        const statusType = String(scores.event_status ?? ev.status_type ?? ev.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
         const finishedStatuses = new Set(["STATUS_FINAL", "FINAL", "FINISHED", "FT", "AET", "PEN", "FULLTIME", "MATCH_FINISHED"]);
         const liveStatuses = new Set(["STATUS_IN_PROGRESS", "LIVE", "IN_PROGRESS", "INPLAY", "1H", "2H", "HT", "ET", "PEN_LIVE"]);
+        const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
         // Scores alone are not proof that a match is finished: some feeds send 0-0 placeholders.
         const isFinished = finishedStatuses.has(statusType);
         const hasUsableScore = validScores && (isFinished || liveStatuses.has(statusType));
@@ -80,7 +81,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           homeTeam: homeName,
           awayTeam: awayName,
           competition: sport.name,
-          status: isFinished ? "FT" : (liveStatuses.has(statusType) ? "LIVE" : "NS"),
+          status: isFinished ? "FT" : (liveStatuses.has(statusType) ? "LIVE" : scheduledStatuses.has(statusType) || !statusType ? "NS" : statusType),
           homeGoals: hasUsableScore ? homeScore : undefined,
           awayGoals: hasUsableScore ? awayScore : undefined,
           resultSettled: isFinished,
