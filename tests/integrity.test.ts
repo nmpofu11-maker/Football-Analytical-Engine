@@ -6,8 +6,8 @@ import { getFixtureCompositeKey, mergeFixtureSlates } from "../src/utils/fixture
 import { getVerifiedTeamSampleSize } from "../src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "../src/utils/isoDate";
 import { simulateMatchup } from "../src/utils/footballMath";
-import { fetchSportApiAiFixtures } from "../src/services/serverSportApiAi";
-import { fetchTheRundownFixtures, SOCCER_SPORT_IDS } from "../src/services/serverTheRundown";
+import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "../src/services/serverSportApiAi";
+import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics, SOCCER_SPORT_IDS } from "../src/services/serverTheRundown";
 
 describe("verified historical sample provenance", () => {
   it("counts only distinct settled results from recognized providers", () => {
@@ -145,6 +145,11 @@ describe("live provider validation", () => {
     try {
       assert.deepEqual(await fetchSportApiAiFixtures("2026-10-10"), []);
       assert.equal(requestedUrl, "https://sportapi.ai/api/fixtures?date=2026-10-10");
+      const diagnostics = getSportApiAiProviderDiagnostics();
+      assert.equal(diagnostics.configured, true);
+      assert.equal(diagnostics.state, "http_error");
+      assert.equal(diagnostics.lastHttpStatus, 401);
+      assert.equal(diagnostics.lastErrorCode, "http_401");
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.SPORTAPI_AI_KEY;
@@ -302,6 +307,11 @@ describe("live provider validation", () => {
       const duringCooldown = await fetchTheRundownFixtures("2026-10-11");
       assert.deepEqual(duringCooldown, []);
       assert.equal(calls, 1);
+      const diagnostics = getTheRundownProviderDiagnostics();
+      assert.equal(diagnostics.configured, true);
+      assert.equal(diagnostics.state, "rate_limited");
+      assert.equal(diagnostics.lastHttpStatus, 429);
+      assert.ok(diagnostics.cooldownUntil);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
