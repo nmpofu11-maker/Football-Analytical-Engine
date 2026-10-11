@@ -12,6 +12,9 @@ export const SOCCER_SPORT_IDS = [
   { id: 13, name: "Europa League" }
 ];
 
+const RATE_LIMIT_COOLDOWN_MS = 60_000;
+let rateLimitedUntil = 0;
+
 function validTeamName(value: any): string {
   const name = typeof value === "string" ? value.trim() : "";
   return name && !/^(home|away|team ?[ab]|tbd|unknown|n\/a|none)$/i.test(name) ? name : "";
@@ -28,6 +31,11 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
     return [];
   }
 
+  if (Date.now() < rateLimitedUntil) {
+    console.warn("TheRundown requests paused briefly after HTTP 429 rate limiting.");
+    return [];
+  }
+
   const allFixtures: any[] = [];
   const ingestedAt = new Date().toISOString();
 
@@ -40,6 +48,11 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           "Accept": "application/json"
         }
       });
+      if (res.status === 429) {
+        rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+        console.warn("TheRundown returned HTTP 429; pausing provider requests for 60 seconds.");
+        break;
+      }
       if (!res.ok) {
         console.warn(`TheRundown returned HTTP ${res.status} for ${sport.name}.`);
         continue;
