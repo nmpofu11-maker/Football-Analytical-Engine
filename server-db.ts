@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams";
+
+dotenv.config();
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), "data"));
 
