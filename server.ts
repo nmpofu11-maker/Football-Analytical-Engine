@@ -247,7 +247,7 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
       isBookmakerProtected: isIncomingBookmaker || item.source === "bookmaker-import" || item.source === "hollywoodbets-pdf" || prev.isBookmakerProtected || false
     };
     // A newer upcoming-provider record must clear stale placeholder scores, but never erase a settled result.
-    const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\\s-]+/g, "_");
+    const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
     const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"].includes(incomingStatus);
     if (incomingItem && useIncoming && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
       delete merged.homeGoals;
