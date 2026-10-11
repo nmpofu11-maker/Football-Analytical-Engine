@@ -6,7 +6,7 @@ const DRIVE_FOLDER = "FootballAnalyticalEngine";
 const SCOPES = ["offline_access", "User.Read", "Files.ReadWrite"];
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-type OAuthState = { value: string; expiresAt: number };
+type OAuthState = { value: string; expiresAt: number; codeVerifier: string };
 type TokenResponse = { access_token: string; expires_in: number; refresh_token?: string; token_type?: string };
 type DriveItem = { id: string; name: string; eTag?: string; size?: number; lastModifiedDateTime?: string };
 
@@ -169,7 +169,9 @@ export function createOneDriveAuthorization() {
     throw Object.assign(new Error("Set ONEDRIVE_CLIENT_ID, ONEDRIVE_CLIENT_SECRET and ONEDRIVE_REDIRECT_URI before starting consent."), { code: "ONEDRIVE_APP_NOT_CONFIGURED" });
   }
   const state = randomBytes(32).toString("base64url");
-  pendingStates.set(createHash("sha256").update(state).digest("hex"), { value: state, expiresAt: Date.now() + STATE_TTL_MS });
+  const codeVerifier = randomBytes(48).toString("base64url");
+  const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+  pendingStates.set(createHash("sha256").update(state).digest("hex"), { value: state, codeVerifier, expiresAt: Date.now() + STATE_TTL_MS });
   for (const [key, item] of pendingStates) if (item.expiresAt < Date.now()) pendingStates.delete(key);
   const url = new URL(`${IDENTITY_ROOT}/authorize`);
   url.searchParams.set("client_id", c.clientId);
@@ -178,27 +180,30 @@ export function createOneDriveAuthorization() {
   url.searchParams.set("response_mode", "query");
   url.searchParams.set("scope", SCOPES.join(" "));
   url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("prompt", "select_account");
   return { authorizationUrl: url.toString(), expiresInSeconds: STATE_TTL_MS / 1000 };
 }
 
-export function consumeOneDriveOAuthState(state: string): boolean {
-  if (!state || state.length > 256) return false;
+export function consumeOneDriveOAuthState(state: string): string | null {
+  if (!state || state.length > 256) return null;
   const key = createHash("sha256").update(state).digest("hex");
   const item = pendingStates.get(key);
   pendingStates.delete(key);
-  if (!item || item.expiresAt < Date.now()) return false;
+  if (!item || item.expiresAt < Date.now()) return null;
   const a = Buffer.from(item.value);
   const b = Buffer.from(state);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return a.length === b.length && timingSafeEqual(a, b) ? item.codeVerifier : null;
 }
 
-export async function exchangeOneDriveAuthorizationCode(code: string) {
+export async function exchangeOneDriveAuthorizationCode(code: string, codeVerifier: string) {
   if (!code || code.length > 8192) throw new Error("Missing or invalid Microsoft authorization code.");
   const result = await tokenRequest({
     grant_type: "authorization_code",
     code,
     scope: SCOPES.join(" "),
+    code_verifier: codeVerifier,
   });
   if (!result.refresh_token) throw new Error("Microsoft did not return a refresh token. Ensure offline_access was consented to.");
   latestRefreshToken = result.refresh_token;
