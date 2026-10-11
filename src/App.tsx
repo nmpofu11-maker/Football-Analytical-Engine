@@ -103,6 +103,9 @@ export default function App() {
 
   const [verifiedResults, setVerifiedResults] = useState<any[]>([]);
   const [coeffHistoryLogs, setCoeffHistoryLogs] = useState<any[]>([]);
+  const [evidenceDiagnostics, setEvidenceDiagnostics] = useState<any | null>(null);
+  const [evidenceDiagnosticsError, setEvidenceDiagnosticsError] = useState("");
+  const [isRefreshingEvidenceDiagnostics, setIsRefreshingEvidenceDiagnostics] = useState(false);
 
   useEffect(() => {
     secureApiFetch("/api/matrices")
@@ -129,6 +132,25 @@ export default function App() {
       })
       .catch(err => console.warn("Failed to load coefficient history:", err));
   }, [trendTeam]);
+
+  const refreshEvidenceDiagnostics = async () => {
+    setIsRefreshingEvidenceDiagnostics(true);
+    setEvidenceDiagnosticsError("");
+    try {
+      const response = await secureApiFetch("/api/diagnostics/evidence");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to load evidence readiness diagnostics.");
+      setEvidenceDiagnostics(data);
+    } catch (error: any) {
+      setEvidenceDiagnosticsError(error?.message || "Unable to load evidence readiness diagnostics.");
+    } finally {
+      setIsRefreshingEvidenceDiagnostics(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshEvidenceDiagnostics();
+  }, []);
 
   // Fixtures Tab States - STRICTLY Default to TODAY via dynamic client clock
   const [selectedFixtureDate, setSelectedFixtureDate] = useState<string>(() => getTodayDateStr());
@@ -1543,6 +1565,81 @@ export default function App() {
                     Real-time verification log comparing automated model predictions against verified match final scores. Correct predictions automatically calibrate team intelligence matrices.
                   </p>
                 </div>
+
+                {/* Evidence readiness is based on server-side verified records, not browser cache. */}
+                <section className="rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-[#0F172A]">Prediction Evidence Readiness</h3>
+                      <p className="text-xs text-[#64748B] mt-1">Live server diagnostics. Imported scores are not treated as model calibration.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={refreshEvidenceDiagnostics}
+                      disabled={isRefreshingEvidenceDiagnostics}
+                      className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-bold text-[#334155] disabled:opacity-50"
+                    >
+                      {isRefreshingEvidenceDiagnostics ? "Refreshing…" : "Refresh diagnostics"}
+                    </button>
+                  </div>
+                  {evidenceDiagnosticsError ? (
+                    <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                      Diagnostics unavailable: {evidenceDiagnosticsError}. Confirm the deployed revision includes the latest GitHub changes.
+                    </p>
+                  ) : !evidenceDiagnostics ? (
+                    <p className="text-xs text-[#64748B]">Loading server evidence status…</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div className="rounded-lg bg-white border border-[#E2E8F0] p-3">
+                          <span className="block text-[10px] uppercase font-bold text-[#64748B]">Stored results</span>
+                          <strong className="block text-xl text-[#0F172A]">{evidenceDiagnostics.historicalEvidence?.storedResultRecords ?? 0}</strong>
+                        </div>
+                        <div className="rounded-lg bg-white border border-[#E2E8F0] p-3">
+                          <span className="block text-[10px] uppercase font-bold text-[#64748B]">Teams with verified history</span>
+                          <strong className="block text-xl text-[#0F172A]">{evidenceDiagnostics.historicalEvidence?.teamsWithVerifiedHistory ?? 0}/{evidenceDiagnostics.historicalEvidence?.targetTeams ?? 80}</strong>
+                        </div>
+                        <div className="rounded-lg bg-white border border-[#E2E8F0] p-3">
+                          <span className="block text-[10px] uppercase font-bold text-[#64748B]">Calibrated teams</span>
+                          <strong className="block text-xl text-[#0F172A]">{evidenceDiagnostics.modelReadiness?.teamsWithOutOfSampleCalibration ?? 0}</strong>
+                        </div>
+                        <div className="rounded-lg bg-white border border-[#E2E8F0] p-3">
+                          <span className="block text-[10px] uppercase font-bold text-[#64748B]">Saved predictions</span>
+                          <strong className="block text-xl text-[#0F172A]">{evidenceDiagnostics.modelReadiness?.storedPredictionRecords ?? 0}</strong>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+                          <p className="font-bold text-[#334155] mb-2">Provider configuration</p>
+                          {[
+                            ["API-Football key", evidenceDiagnostics.providers?.apiFootballKeyConfigured],
+                            ["SportAPI.ai key", evidenceDiagnostics.providers?.sportApiAiKeyConfigured],
+                            ["TheRundown key", evidenceDiagnostics.providers?.theRundownKeyConfigured],
+                            ["Official results endpoint", evidenceDiagnostics.providers?.officialResultsEndpointConfigured]
+                          ].map(([label, configured]) => (
+                            <div key={String(label)} className="flex items-center justify-between gap-2 py-1">
+                              <span className="text-[#475569]">{label}</span>
+                              <span className={configured ? "font-bold text-emerald-700" : "font-bold text-amber-700"}>{configured ? "Configured" : "Missing"}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+                          <p className="font-bold text-[#334155] mb-2">Readiness notes</p>
+                          <p className="text-[#475569]">{evidenceDiagnostics.backfill?.note}</p>
+                          <p className="mt-2 text-amber-800">{evidenceDiagnostics.storage?.persistenceWarning}</p>
+                          {evidenceDiagnostics.historicalEvidence?.resultsStoreReadable === false && (
+                            <p role="alert" className="mt-2 font-bold text-red-700">The historical results store could not be read.</p>
+                          )}
+                        </div>
+                      </div>
+                      {evidenceDiagnostics.modelReadiness?.teamsWithOutOfSampleCalibration === 0 && (
+                        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                          Predictions remain blocked until a valid out-of-sample calibration process has produced evidence. Backfilling final scores alone will not unlock forecasts.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </section>
 
                 {/* Summary Metrics Banner */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
