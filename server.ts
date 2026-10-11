@@ -746,14 +746,18 @@ app.post("/api/results/push-scores", (req, res) => {
       });
 
       if (matchedScore) {
+        const status = String(matchedScore.status || "").trim().toUpperCase();
+        const finalStatuses = ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"];
+        const rawHome = matchedScore.homeGoals ?? matchedScore.homeScore;
+        const rawAway = matchedScore.awayGoals ?? matchedScore.awayScore;
+        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+        if (!finalStatuses.includes(status) || !Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) return match;
         updatedCount++;
         return {
           ...match,
-          status: matchedScore.status || "FT",
-          finalScore: {
-            home: Number(matchedScore.homeGoals ?? matchedScore.homeScore ?? 0),
-            away: Number(matchedScore.awayGoals ?? matchedScore.awayScore ?? 0)
-          },
+          status: "FT",
+          finalScore: { home, away },
           resultSettled: true,
           settledAt: new Date().toISOString(),
           resultSource: matchedScore.source || "custom-results-api"
