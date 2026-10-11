@@ -1418,14 +1418,15 @@ app.get("/api/onedrive/auth/callback", async (req, res) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   const code = String(req.query.code || "");
   const state = String(req.query.state || "");
-  if (!consumeOneDriveOAuthState(state)) {
+  const codeVerifier = consumeOneDriveOAuthState(state);
+  if (!codeVerifier) {
     return res.status(400).json({ error: "OAuth state is invalid, expired, or was already used. Restart the OneDrive authorization flow." });
   }
   if (req.query.error) {
     return res.status(400).json({ error: "Microsoft authorization was not completed. Restart the OneDrive authorization flow." });
   }
   try {
-    const result = await exchangeOneDriveAuthorizationCode(code);
+    const result = await exchangeOneDriveAuthorizationCode(code, codeVerifier);
     // This is the only time the refresh token is shown. Copy it directly into
     // the ONEDRIVE_REFRESH_TOKEN Secret Manager entry, then redeploy. Never log it.
     return res.json({
