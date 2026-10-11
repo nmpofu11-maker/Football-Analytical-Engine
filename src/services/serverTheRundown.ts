@@ -190,7 +190,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           status: isFinished ? "FT" : (isLive ? "LIVE" : kickoffInFuture || scheduledStatuses.has(statusType) || !statusType ? "NS" : statusType),
           homeGoals: hasUsableScore ? homeScore : undefined,
           awayGoals: hasUsableScore ? awayScore : undefined,
-          resultSettled: isFinished,
+          resultSettled: isFinished && validScores,
           source: "therundown",
           sourceConfidence: "verified",
           ingestedAt
