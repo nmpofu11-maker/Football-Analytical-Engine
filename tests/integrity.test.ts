@@ -139,6 +139,7 @@ describe("live provider validation", () => {
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
       else process.env.THERUNDOWN_KEY = oldKey;
     }
+  });
 
   it("backs off after TheRundown rate limiting instead of calling every competition", async () => {
     const oldKey = process.env.THERUNDOWN_KEY;
@@ -161,6 +162,5 @@ describe("live provider validation", () => {
       if (oldKey === undefined) delete process.env.THERUNDOWN_KEY;
       else process.env.THERUNDOWN_KEY = oldKey;
     }
-  });
   });
 });
