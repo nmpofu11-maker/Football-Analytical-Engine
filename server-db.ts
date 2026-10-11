@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { LOCKED_80_TEAMS, isFastPacedLeagueTeam } from "./src/data/favoriteTeams";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), "data"));
 
 // Helper to generate default team coefficients matrices
 function generateDefaultMatricesServer(): Record<string, any> {
