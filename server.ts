@@ -165,7 +165,7 @@ function generatePreMatchPredictions(fixtures: any[]) {
   for (const f of fixtures) {
     if (f.sourceConfidence === "unknown") continue;
     const status = String(f.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-    const upcomingStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"]);
+    const upcomingStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
     if (!upcomingStatuses.has(status)) continue;
     const dateValue = String(f.date ?? "").trim();
     const timeValue = String(f.time ?? "00:00").trim();
@@ -263,7 +263,7 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
     };
     // A newer upcoming-provider record must clear stale placeholder scores, but never erase a settled result.
     const incomingStatus = String(item.status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-    const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE"].includes(incomingStatus);
+    const incomingIsUpcoming = ["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"].includes(incomingStatus);
     if (incomingItem && useIncoming && incomingIsUpcoming && prev.resultSettled !== true && item.resultSettled !== true) {
       delete merged.homeGoals;
       delete merged.awayGoals;
