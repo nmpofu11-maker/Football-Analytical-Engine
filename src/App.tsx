@@ -191,7 +191,6 @@ export default function App() {
 
   // Copy/Sync States
   const [isCopied, setIsCopied] = useState<boolean>(false);
-  const [isSynced, setIsSynced] = useState<boolean>(false);
 
   // --- 2. Local Persistence & Sync Synchronization ---
   useEffect(() => {
@@ -465,12 +464,6 @@ export default function App() {
     navigator.clipboard.writeText(JSON.stringify(syncPayload, null, 2));
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
-  };
-
-  // Sync to parent applet
-  const handleTriggerSync = () => {
-    setIsSynced(true);
-    setTimeout(() => setIsSynced(false), 3000);
   };
 
   // Reset all matrices to standard values
@@ -2891,18 +2884,12 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={handleTriggerSync}
-                      className="bg-[#15803D] hover:bg-[#166534] text-white px-4 py-1.5 rounded-lg font-bold flex items-center gap-1 transition"
+                      type="button"
+                      disabled
+                      title="No remote sync destination is configured. Use Copy JSON for manual transfer."
+                      className="bg-slate-100 text-slate-600 border border-slate-200 px-4 py-1.5 rounded-lg font-bold flex items-center gap-1 cursor-not-allowed"
                     >
-                      {isSynced ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" /> Program Synced!
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5" /> Trigger Sync Ingestion
-                        </>
-                      )}
+                      <ShieldAlert className="w-3.5 h-3.5" /> Remote Sync Not Configured
                     </button>
                   </div>
                 </div>
