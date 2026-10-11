@@ -72,7 +72,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED"]);
         // Scores alone are not proof that a match is finished: some feeds send 0-0 placeholders.
         const isFinished = finishedStatuses.has(statusType);
-        const hasUsableScore = validScores && !scheduledStatuses.has(statusType);
+        const hasUsableScore = validScores && (isFinished || liveStatuses.has(statusType));
 
         allFixtures.push({
           id: String(eventId),
