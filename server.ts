@@ -324,8 +324,8 @@ app.post("/api/digest", async (req, res) => {
 Your task is to ingest a scraped sports payload (HTML or text) and extract match details, physical pitch facts, expected goals (xG), possession, and team circumstances.
 
 Strict constraints:
-1. Identify any match containing at least one of our 80 Target Favourite Teams:
-${LOCKED_80_TEAMS.join(", ")}
+1. Identify any match containing at least one of our managed target teams:
+${targetTeams.join(", ")}
 
 2. Match variations of team names in the payload to our exact target name if possible (e.g. "Napoli" maps to "Napoli", "Inter W" or "Inter Milan Women" maps to "Inter Milan Women", etc.).
 
