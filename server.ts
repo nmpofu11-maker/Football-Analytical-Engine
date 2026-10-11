@@ -1263,6 +1263,8 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       sportApiAiKeyConfigured: Boolean(process.env.SPORTAPI_AI_KEY),
       theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
       resultsEndpointConfigured: Boolean(configuredEndpoint),
+      dataDirectoryConfigured: Boolean(process.env.DATA_DIR),
+      dataDirectoryPersistence: process.env.DATA_DIR ? "custom path configured; verify it is a persistent mounted volume" : "default ./data path; may be ephemeral on container/serverless hosts",
       officialResultsEndpointConfigured
     },
     historicalEvidence: {
