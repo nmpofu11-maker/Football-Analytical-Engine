@@ -3,9 +3,33 @@ import { describe, it } from "node:test";
 import { LOCKED_80_TEAMS } from "../src/data/favoriteTeams";
 import { parseBookmakerRawText } from "../src/utils/bookmakerParser";
 import { getFixtureCompositeKey } from "../src/utils/fixtureDedupe";
+import { getVerifiedTeamSampleSize } from "../src/utils/verifiedTeamSamples";
 import { simulateMatchup } from "../src/utils/footballMath";
 import { fetchSportApiAiFixtures } from "../src/services/serverSportApiAi";
 import { fetchTheRundownFixtures } from "../src/services/serverTheRundown";
+
+describe("verified historical sample provenance", () => {
+  it("counts only distinct settled results from recognized providers", () => {
+    const records = [
+      { id: "m1", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "2-1", source: "api-football", verifiedAt: "2026-10-10T18:00:00Z" },
+      { id: "m1", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "2-1", source: "api-football", verifiedAt: "2026-10-10T18:00:00Z" },
+      { id: "m2", homeTeam: "Roma", awayTeam: "Napoli", actualScore: "0-0", source: "sportmonks", verifiedAt: "2026-10-09T18:00:00Z" },
+      { id: "manual", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "4-0", source: "manual-ingest", verifiedAt: "2026-10-08T18:00:00Z" },
+      { id: "unsettled", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "N/A", source: "api-football", verifiedAt: "2026-10-08T18:00:00Z" }
+    ];
+    assert.equal(getVerifiedTeamSampleSize(records, "Napoli"), 2);
+    assert.equal(getVerifiedTeamSampleSize(records, "Roma"), 2);
+    assert.equal(getVerifiedTeamSampleSize(records, "Liverpool"), 0);
+  });
+
+  it("does not count malformed or future-dated result records", () => {
+    const records = [
+      { id: "bad-score", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "TBD", source: "api-football", verifiedAt: "2026-10-08T18:00:00Z" },
+      { id: "future", homeTeam: "Napoli", awayTeam: "Roma", actualScore: "1-0", source: "api-football", verifiedAt: "2999-01-01T00:00:00Z" }
+    ];
+    assert.equal(getVerifiedTeamSampleSize(records, "Napoli"), 0);
+  });
+});
 
 describe("integrity guards", () => {
   it("contains exactly 80 unique target teams", () => {
