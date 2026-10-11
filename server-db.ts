@@ -279,8 +279,8 @@ export function getTargetTeams(): string[] {
 }
 
 export function addTargetTeam(rawName: string): { teams: string[]; added: boolean; team: string } {
-  const team = rawName.trim().replace(/\\s+/g, " ");
-  if (!team || team.length > 80 || /[<>\\r\\n]/.test(team)) throw new Error("Enter a valid team name (1–80 characters).");
+  const team = rawName.trim().replace(/\s+/g, " ");
+  if (!team || team.length > 80 || /[<>\r\n]/.test(team)) throw new Error("Enter a valid team name (1–80 characters).");
   const teams = getTargetTeams();
   const existing = teams.find(value => value.toLowerCase() === team.toLowerCase());
   if (existing) return { teams, added: false, team: existing };
