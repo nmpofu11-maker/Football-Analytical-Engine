@@ -102,8 +102,12 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
       const finishedStatuses = new Set(["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL", "MATCH_FINISHED"]);
       // Only explicit final statuses settle results. Some feeds send 0-0 placeholders for upcoming fixtures.
-      const isFinished = finishedStatuses.has(rawStatus);
-      const hasUsableScore = validScores && (isFinished || liveStatuses.has(rawStatus));
+      // A provider cannot legitimately report a match as finished before its kickoff.
+      // Guard against stale or malformed FT/0-0 placeholders for future fixtures.
+      const kickoffInFuture = parsedDate!.getTime() > Date.now() + 15 * 60 * 1000;
+      const isFinished = finishedStatuses.has(rawStatus) && !kickoffInFuture;
+      const isLive = liveStatuses.has(rawStatus) && !kickoffInFuture;
+      const hasUsableScore = validScores && (isFinished || isLive);
       const competitionCandidates = [f.competition, f.league, f.tournament, f.competition_name, f.league_name, f.tournament_name, f.competition?.name, f.league?.name, f.tournament?.name, f.competition?.competition_name, f.league?.league_name, f.tournament?.tournament_name, f.competition?.title, f.league?.title, f.tournament?.title];
       const competition = competitionCandidates.find((value) => typeof value === "string" && value.trim())?.trim() || competitionCandidates.find((value) => value && typeof value === "object")?.name?.trim?.() || "";
       // A fixture without competition metadata is incomplete; don't label it verified
@@ -117,7 +121,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         homeTeam: home,
         awayTeam: away,
         competition,
-        status: isFinished ? "FT" : liveStatuses.has(rawStatus) ? "LIVE" : scheduledStatuses.has(rawStatus) ? "NS" : rawStatus,
+        status: isFinished ? "FT" : isLive ? "LIVE" : (kickoffInFuture || scheduledStatuses.has(rawStatus)) ? "NS" : rawStatus,
         homeGoals: hasUsableScore ? homeScore : undefined,
         awayGoals: hasUsableScore ? awayScore : undefined,
         resultSettled: isFinished,

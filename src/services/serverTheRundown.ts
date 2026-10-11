@@ -84,8 +84,12 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         const liveStatuses = new Set(["STATUS_IN_PROGRESS", "STATUS_LIVE", "LIVE", "IN_PROGRESS", "INPLAY", "IN_PLAY", "1H", "2H", "1ST_HALF", "2ND_HALF", "HT", "HALF_TIME", "ET", "EXTRA_TIME", "PEN_LIVE", "PENALTIES"]);
         const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED", "PRE_MATCH"]);
         // Scores alone are not proof that a match is finished: some feeds send 0-0 placeholders.
-        const isFinished = finishedStatuses.has(statusType);
-        const hasUsableScore = validScores && (isFinished || liveStatuses.has(statusType));
+        // Reject impossible final/live states when the scheduled kickoff is still in the future.
+        // This prevents stale provider 0-0 placeholders from being presented as verified results.
+        const kickoffInFuture = eventDate.getTime() > Date.now() + 15 * 60 * 1000;
+        const isFinished = finishedStatuses.has(statusType) && !kickoffInFuture;
+        const isLive = liveStatuses.has(statusType) && !kickoffInFuture;
+        const hasUsableScore = validScores && (isFinished || isLive);
 
         allFixtures.push({
           id: String(eventId),
@@ -94,7 +98,7 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
           homeTeam: homeName,
           awayTeam: awayName,
           competition: sport.name,
-          status: isFinished ? "FT" : (liveStatuses.has(statusType) ? "LIVE" : scheduledStatuses.has(statusType) || !statusType ? "NS" : statusType),
+          status: isFinished ? "FT" : (isLive ? "LIVE" : kickoffInFuture || scheduledStatuses.has(statusType) || !statusType ? "NS" : statusType),
           homeGoals: hasUsableScore ? homeScore : undefined,
           awayGoals: hasUsableScore ? awayScore : undefined,
           resultSettled: isFinished,
