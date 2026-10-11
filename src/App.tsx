@@ -108,6 +108,11 @@ export default function App() {
   const [isRefreshingEvidenceDiagnostics, setIsRefreshingEvidenceDiagnostics] = useState(false);\n  const [targetTeams, setTargetTeams] = useState<string[]>(LOCKED_80_TEAMS);\n  const [newTargetTeamName, setNewTargetTeamName] = useState("");\n  const [targetTeamMessage, setTargetTeamMessage] = useState("");\n  const [isAddingTargetTeam, setIsAddingTargetTeam] = useState(false);
 
   useEffect(() => {
+    secureApiFetch("/api/teams")
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data.teams)) setTargetTeams(data.teams); })
+      .catch(e => console.warn("Failed to load managed target teams:", e));
+
     secureApiFetch("/api/matrices")
       .then(res => res.json())
       .then(data => {
