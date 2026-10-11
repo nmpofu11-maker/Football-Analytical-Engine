@@ -103,7 +103,7 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
       const finishedStatuses = new Set(["FINISHED", "FT", "AET", "PEN", "FINAL", "FULLTIME", "STATUS_FINAL", "MATCH_FINISHED"]);
       // Only explicit final statuses settle results. Some feeds send 0-0 placeholders for upcoming fixtures.
       const isFinished = finishedStatuses.has(rawStatus);
-      const hasUsableScore = validScores && !scheduledStatuses.has(rawStatus);
+      const hasUsableScore = validScores && (isFinished || liveStatuses.has(rawStatus));
       const competitionCandidates = [f.competition, f.league, f.tournament, f.competition_name, f.league_name, f.tournament_name, f.competition?.name, f.league?.name, f.tournament?.name, f.competition?.competition_name, f.league?.league_name, f.tournament?.tournament_name, f.competition?.title, f.league?.title, f.tournament?.title];
       const competition = competitionCandidates.find((value) => typeof value === "string" && value.trim())?.trim() || competitionCandidates.find((value) => value && typeof value === "object")?.name?.trim?.() || "";
 
