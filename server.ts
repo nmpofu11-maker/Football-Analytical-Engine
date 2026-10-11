@@ -1031,6 +1031,109 @@ app.get("/api/predictions/history", (req, res) => {
   return res.json({ predictions: getPredictions() });
 });
 
+// Bounded historical backfill using the configured official API-Football/API-Sports fixtures endpoint.
+// Requires ADMIN_API_KEY (global write middleware) and API_FOOTBALL_KEY. Maximum 14 dates per request.
+app.post("/api/results/backfill", async (req, res) => {
+  const startDate = String(req.body?.startDate || "");
+  const endDate = String(req.body?.endDate || "");
+  const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if (!validDate(startDate) || !validDate(endDate) || startDate > endDate) {
+    return res.status(400).json({ error: "Provide valid startDate and endDate in YYYY-MM-DD format." });
+  }
+  const days = Math.round((Date.parse(endDate + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86400000) + 1;
+  if (days > 14) return res.status(400).json({ error: "Backfill is limited to 14 calendar days per request to protect provider quota." });
+  if (endDate > new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: "Historical backfill cannot include future dates." });
+  const apiKey = process.env.API_FOOTBALL_KEY || "";
+  if (!apiKey) return res.status(503).json({ error: "API_FOOTBALL_KEY is not configured." });
+  let endpoint = "";
+  try {
+    endpoint = resultsApiConfig.apiUrl || process.env.RESULTS_API_URL || "";
+    const parsed = new URL(endpoint);
+    const host = parsed.hostname.toLowerCase();
+    if (!["api-football.com", "www.api-football.com", "api-sports.io", "v3.football.api-sports.io"].includes(host) && !host.endsWith(".api-sports.io")) {
+      return res.status(400).json({ error: "Historical backfill requires a recognized official API-Football/API-Sports endpoint in results settings." });
+    }
+  } catch {
+    return res.status(400).json({ error: "Configure a valid official API-Football/API-Sports endpoint in results settings first." });
+  }
+
+  const resultsFile = path.join(DATA_DIR, "db_results.json");
+  let resultsList: any[] = [];
+  try {
+    if (fs.existsSync(resultsFile)) {
+      const parsed = JSON.parse(fs.readFileSync(resultsFile, "utf-8"));
+      if (Array.isArray(parsed)) resultsList = parsed;
+    }
+  } catch {
+    return res.status(500).json({ error: "Existing results store is unreadable; no backfill was written." });
+  }
+
+  const existingKeys = new Set(resultsList.map((r: any) => String(r.matchKey || "")).filter(Boolean));
+  checkAndResetResultsApiQuota();
+  let fetched = 0;
+  let imported = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  for (let offset = 0; offset < days; offset++) {
+    const d = new Date(Date.parse(startDate + "T00:00:00Z") + offset * 86400000).toISOString().slice(0, 10);
+    if (resultsApiConfig.todayCallsCount >= resultsApiConfig.maxCallsPerDay) {
+      errors.push("Daily configured results API quota reached; remaining dates were not requested.");
+      break;
+    }
+    try {
+      const url = new URL(endpoint);
+      url.searchParams.set("date", d);
+      const response = await fetch(url.toString(), { headers: { "Content-Type": "application/json", "x-apisports-key": apiKey, "x-rapidapi-key": apiKey, "Accept": "application/json" } });
+      resultsApiConfig.todayCallsCount++;
+      if (!response.ok) {
+        errors.push("Provider returned HTTP " + response.status + " for " + d + ".");
+        continue;
+      }
+      const payload: any = await response.json();
+      const items = payload?.response || payload?.results || payload?.scores || payload?.fixtures || (Array.isArray(payload) ? payload : []);
+      if (!Array.isArray(items)) { errors.push("Unrecognized results payload for " + d + "."); continue; }
+      fetched += items.length;
+      for (const item of items) {
+        const status = String(item?.fixture?.status?.short ?? item?.status ?? item?.match_status ?? "").toUpperCase();
+        if (!["FT", "AET", "PEN", "FINISHED", "FINAL", "FULLTIME", "STATUS_FINAL"].includes(status)) { skipped++; continue; }
+        const homeTeam = String(item?.teams?.home?.name ?? item?.homeTeam ?? item?.home_team ?? "").trim();
+        const awayTeam = String(item?.teams?.away?.name ?? item?.awayTeam ?? item?.away_team ?? "").trim();
+        const rawHome = item?.goals?.home ?? item?.homeGoals ?? item?.home_score;
+        const rawAway = item?.goals?.away ?? item?.awayGoals ?? item?.away_score;
+        const homeGoals = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+        const awayGoals = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+        const kickoffRaw = item?.fixture?.date ?? item?.date ?? item?.datetime ?? item?.kickoff;
+        const kickoff = kickoffRaw ? new Date(kickoffRaw) : null;
+        if (!homeTeam || !awayTeam || homeTeam.toLowerCase() === awayTeam.toLowerCase() || !Number.isSafeInteger(homeGoals) || homeGoals < 0 || !Number.isSafeInteger(awayGoals) || awayGoals < 0 || !kickoff || Number.isNaN(kickoff.getTime()) || kickoff.toISOString().slice(0, 10) !== d || kickoff.getTime() > Date.now()) { skipped++; continue; }
+        const matchKey = getCompositeKeyServer(homeTeam, awayTeam, d);
+        if (existingKeys.has(matchKey)) { skipped++; continue; }
+        const actualOutcome = homeGoals > awayGoals ? "1" : homeGoals < awayGoals ? "2" : "X";
+        resultsList.push({
+          id: "hist-" + matchKey,
+          matchKey, homeTeam, awayTeam, date: d,
+          competition: String(item?.league?.name ?? item?.competition ?? "Unknown competition"),
+          hasPriorPrediction: false,
+          predictedOutcome: "N/A (Historical backfill)",
+          actualOutcome,
+          predictedScore: "N/A",
+          actualScore: homeGoals + "-" + awayGoals,
+          isCorrect: null,
+          source: "api-football",
+          verifiedAt: new Date().toISOString()
+        });
+        existingKeys.add(matchKey);
+        imported++;
+      }
+    } catch (error: any) {
+      errors.push("Request failed for " + d + ": " + String(error?.message || "unknown error"));
+    }
+  }
+  saveResultsConfig();
+  ensureDataDir();
+  fs.writeFileSync(resultsFile, JSON.stringify(resultsList, null, 2), "utf-8");
+  return res.json({ success: true, startDate, endDate, datesRequested: days, providerRecordsFetched: fetched, imported, skipped, totalVerifiedRecords: resultsList.length, errors });
+});
+
 app.get("/api/results/verified", (req, res) => {
   const resultsFile = path.join(DATA_DIR, "db_results.json");
   if (fs.existsSync(resultsFile)) {
