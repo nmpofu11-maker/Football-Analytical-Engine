@@ -1,15 +1,18 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// IDs are TheRundown sport IDs, not league IDs from another provider.
+// Keep this list aligned with the provider's published soccer catalog.
 export const SOCCER_SPORT_IDS = [
-  { id: 11, name: "Premier League" },
-  { id: 17, name: "La Liga" },
-  { id: 16, name: "Serie A" },
-  { id: 18, name: "Bundesliga" },
-  { id: 19, name: "Ligue 1" },
   { id: 10, name: "MLS" },
-  { id: 12, name: "Champions League" },
-  { id: 13, name: "Europa League" }
+  { id: 11, name: "Premier League" },
+  { id: 12, name: "Ligue 1" },
+  { id: 13, name: "Bundesliga" },
+  { id: 14, name: "La Liga" },
+  { id: 15, name: "Serie A" },
+  { id: 16, name: "Champions League" },
+  { id: 19, name: "J1 League" },
+  { id: 34, name: "Liga MX" }
 ];
 
 const BASE_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
