@@ -69,7 +69,6 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         const statusType = String(scores.event_status ?? ev.status_type ?? ev.status ?? "").trim().toUpperCase().replace(/[\\s-]+/g, "_");
         const finishedStatuses = new Set(["STATUS_FINAL", "FINAL", "FINISHED", "FT", "AET", "PEN", "FULLTIME", "MATCH_FINISHED"]);
         const liveStatuses = new Set(["STATUS_IN_PROGRESS", "LIVE", "IN_PROGRESS", "INPLAY", "1H", "2H", "HT", "ET", "PEN_LIVE"]);
-        const scheduledStatuses = new Set(["NS", "SCHEDULED", "NOT_STARTED", "UPCOMING", "TBD", "TIMED", "FIXTURE", "STATUS_SCHEDULED", "STATUS_NOT_STARTED"]);
         // Scores alone are not proof that a match is finished: some feeds send 0-0 placeholders.
         const isFinished = finishedStatuses.has(statusType);
         const hasUsableScore = validScores && (isFinished || liveStatuses.has(statusType));
