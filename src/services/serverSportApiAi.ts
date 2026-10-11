@@ -103,7 +103,8 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
         "Authorization": `Bearer ${apiKey}`,
         "Accept": "application/json",
         "User-Agent": "Football-Analytical-Engine/1.0"
-      }
+      },
+      signal: AbortSignal.timeout(10_000)
     });
     if (!res.ok) {
       providerDiagnostics = { ...providerDiagnostics, state: "http_error", lastHttpStatus: res.status, lastErrorCode: `http_${res.status}` };
