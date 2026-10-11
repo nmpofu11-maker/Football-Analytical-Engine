@@ -47,6 +47,7 @@ import { LearnedCoefficients, TeamIntelligenceMatrix, SyncPayload, MatchReport, 
 import { Fixture } from "./data/fixtures";
 import { getTodayDateStr, get48HourRollingCutoff, formatDateHuman, getDynamicDatePickers } from "./utils/dateUtils";
 import { normalizeTeamName, getFixtureCompositeKey, mergeFixtureSlates } from "./utils/fixtureDedupe";
+import { getVerifiedTeamSampleSize } from "./utils/verifiedTeamSamples";
 import { parseBookmakerRawText, ParsedBookmakerMatch, calculateProbabilityDistribution } from "./utils/bookmakerParser";
 
 async function secureApiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -204,7 +205,7 @@ export default function App() {
   // Run initial default simulation on load
   useEffect(() => {
     triggerSimulation();
-  }, [predHomeTeam, predAwayTeam, predWasDerby, predHomeRank, predAwayRank, predHomeContinentalGap, predAwayContinentalGap, predOpponentLowBlock, predHighShotAccuracy, predPossession, teamMatrices]);
+  }, [predHomeTeam, predAwayTeam, predWasDerby, predHomeRank, predAwayRank, predHomeContinentalGap, predAwayContinentalGap, predOpponentLowBlock, predHighShotAccuracy, predPossession, teamMatrices, verifiedResults]);
 
   // --- 3. Dynamic JSON Sync Payload Schema Construction ---
   const syncPayload: SyncPayload = useMemo(() => {
@@ -398,8 +399,10 @@ export default function App() {
       fatigue_penalty_modifier: 0.92
     };
 
-    const homeSampleSize = teamMatrices[predHomeTeam]?.sample_size_matches || 0;
-    const awaySampleSize = teamMatrices[predAwayTeam]?.sample_size_matches || 0;
+    // Only settled results from recognized football-data providers can open the evidence gate.
+    // User-imported/pasted reports may inform manual review, but are not treated as verified samples.
+    const homeSampleSize = getVerifiedTeamSampleSize(verifiedResults, predHomeTeam);
+    const awaySampleSize = getVerifiedTeamSampleSize(verifiedResults, predAwayTeam);
 
     const result = simulateMatchup(
       predHomeTeam,
