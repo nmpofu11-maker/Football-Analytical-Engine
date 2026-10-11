@@ -197,8 +197,13 @@ export async function fetchTheRundownFixtures(dateStr: string): Promise<any[]> {
         });
       }
     } catch (err: any) {
+      lastHttpStatus = null;
       lastErrorCode = "request_failed";
       console.warn(`TheRundown fetch warning for ${sport.name}:`, err?.message || err);
+      // A network/timeout failure is unlikely to improve by immediately making
+      // eight more sequential requests; fail fast and let the next scheduled
+      // refresh retry after the caller's cache/cooldown window.
+      break;
     }
   }
 
