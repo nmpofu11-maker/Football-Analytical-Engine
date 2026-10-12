@@ -121,7 +121,7 @@ function readGoals(raw: any, homeId: string, awayId: string): { home?: number; a
 }
 
 /** Pure mapper: rejects incomplete records and never fabricates score values. */
-export function normalizeSportmonksFixture(raw: any, ingestedAt = new Date().toISOString()): SportmonksFixture | null {
+export function normalizeSportmonksFixture(raw: any, ingestedAt = new Date().toISOString(), now = new Date()): SportmonksFixture | null {
   if (!raw || typeof raw !== "object" || raw.id === undefined || raw.id === null) return null;
   const participants = readParticipants(raw);
   const kickoff = parseKickoffUtc(raw.starting_at ?? raw.startingAt);
@@ -132,7 +132,7 @@ export function normalizeSportmonksFixture(raw: any, ingestedAt = new Date().toI
   const homeTeamId = String(participants.home.id);
   const awayTeamId = String(participants.away.id);
   const statusRaw = statusText(raw);
-  const finished = isFinishedStatus(statusRaw) && kickoff.getTime() <= Date.now() + 15 * 60 * 1000;
+  const finished = isFinishedStatus(statusRaw) && kickoff.getTime() <= now.getTime() + 15 * 60 * 1000;
   const scores = readGoals(raw, homeTeamId, awayTeamId);
   const hasFinalScores = Number.isInteger(scores.home) && Number.isInteger(scores.away);
   const date = kickoff.toISOString();
@@ -149,7 +149,7 @@ export function normalizeSportmonksFixture(raw: any, ingestedAt = new Date().toI
     competition,
     competitionId: String(raw.league_id ?? league?.id ?? "") || undefined,
     seasonId: String(raw.season_id ?? raw.season?.id ?? raw.season ?? "") || undefined,
-    status: finished ? "FT" : statusRaw,
+    status: finished ? "FT" : isFinishedStatus(statusRaw) ? "NS" : statusRaw,
     homeGoals: finished && hasFinalScores ? scores.home : undefined,
     awayGoals: finished && hasFinalScores ? scores.away : undefined,
     resultSettled: finished && hasFinalScores,
@@ -164,7 +164,7 @@ export async function fetchSportmonksFixtures(dateStr: string): Promise<Sportmon
     diagnostics = { ...diagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key" };
     return [];
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr))) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr)) || new Date(`${dateStr}T00:00:00Z`).toISOString().slice(0, 10) !== dateStr) {
     diagnostics = { ...diagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date" };
     return [];
   }
