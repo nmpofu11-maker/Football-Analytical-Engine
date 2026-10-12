@@ -24,7 +24,7 @@ export interface SportmonksFixture {
 
 export type SportmonksCallState =
   | "idle" | "not_configured" | "invalid_request" | "requesting"
-  | "success" | "success_empty" | "http_error" | "request_error";
+  | "success" | "success_empty" | "partial" | "http_error" | "request_error";
 
 interface Diagnostics {
   state: SportmonksCallState;
@@ -164,7 +164,8 @@ export async function fetchSportmonksFixtures(dateStr: string): Promise<Sportmon
     diagnostics = { ...diagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key" };
     return [];
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr)) || new Date(`${dateStr}T00:00:00Z`).toISOString().slice(0, 10) !== dateStr) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr)) ||
+      new Date(`${dateStr}T00:00:00Z`).toISOString().slice(0, 10) !== dateStr) {
     diagnostics = { ...diagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date" };
     return [];
   }
@@ -174,39 +175,73 @@ export async function fetchSportmonksFixtures(dateStr: string): Promise<Sportmon
     lastHttpStatus: null, lastFixtureCount: 0, lastErrorCode: null, lastResponseTruncated: false,
   };
 
+  const base = (process.env.SPORTMONKS_BASE_URL || "https://api.sportmonks.com/v3/football").replace(/\\/+$/, "");
+  const key = (process.env.SPORTMONKS_API_KEY || process.env.SPORTMONKS_API_TOKEN || "").trim();
+  const allRecords: any[] = [];
+  const maxPages = 5;
+  let partialErrorCode: string | null = null;
+  let truncated = false;
+
   try {
-    const base = (process.env.SPORTMONKS_BASE_URL || "https://api.sportmonks.com/v3/football").replace(/\/+$/, "");
-    const url = new URL(`${base}/fixtures/date/${encodeURIComponent(dateStr)}`);
-    url.searchParams.set("include", "participants;scores;league;state;season");
-    url.searchParams.set("timezone", "UTC");
-    url.searchParams.set("per_page", "100");
-    const key = (process.env.SPORTMONKS_API_KEY || process.env.SPORTMONKS_API_TOKEN || "").trim();
-    const response = await fetch(url, {
-      headers: { Authorization: key, Accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
-    });
-    diagnostics = { ...diagnostics, lastHttpStatus: response.status };
-    if (!response.ok) {
-      diagnostics = { ...diagnostics, state: "http_error", lastErrorCode: `http_${response.status}` };
-      return [];
+    for (let page = 1; page <= maxPages; page++) {
+      const url = new URL(`${base}/fixtures/date/${encodeURIComponent(dateStr)}`);
+      url.searchParams.set("include", "participants;scores;league;state;season");
+      url.searchParams.set("timezone", "UTC");
+      url.searchParams.set("per_page", "100");
+      url.searchParams.set("page", String(page));
+      const response = await fetch(url, {
+        headers: { Authorization: key, Accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      diagnostics = { ...diagnostics, lastHttpStatus: response.status };
+      if (!response.ok) {
+        if (page === 1) {
+          diagnostics = { ...diagnostics, state: "http_error", lastErrorCode: `http_${response.status}` };
+          return [];
+        }
+        partialErrorCode = `http_${response.status}_page_${page}`;
+        truncated = true;
+        break;
+      }
+
+      const payload = await response.json() as any;
+      if (!payload || !Array.isArray(payload.data)) {
+        if (page === 1) {
+          diagnostics = { ...diagnostics, state: "request_error", lastErrorCode: "invalid_response_shape" };
+          return [];
+        }
+        partialErrorCode = `invalid_response_shape_page_${page}`;
+        truncated = true;
+        break;
+      }
+      allRecords.push(...payload.data);
+      const hasMore = payload?.pagination?.has_more === true ||
+        payload?.pagination?.hasMore === true ||
+        payload?.meta?.pagination?.has_more === true;
+      if (!hasMore) {
+        truncated = false;
+        break;
+      }
+      if (page === maxPages) truncated = true;
     }
-    const payload = await response.json() as any;
-    if (!payload || !Array.isArray(payload.data)) {
-      diagnostics = { ...diagnostics, state: "request_error", lastErrorCode: "invalid_response_shape" };
-      return [];
-    }
+
     const ingestedAt = new Date().toISOString();
-    const fixtures = payload.data
+    const seen = new Set<string>();
+    const fixtures = allRecords
       .map((item: any) => normalizeSportmonksFixture(item, ingestedAt))
       .filter((item: SportmonksFixture | null): item is SportmonksFixture => item !== null)
-      .filter((item: SportmonksFixture) => item.date === dateStr);
+      .filter((item: SportmonksFixture) => {
+        if (item.date !== dateStr || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
     diagnostics = {
       ...diagnostics,
-      state: fixtures.length ? "success" : "success_empty",
-      lastSuccessAt: new Date().toISOString(),
+      state: partialErrorCode ? "partial" : fixtures.length ? "success" : "success_empty",
+      lastSuccessAt: fixtures.length ? new Date().toISOString() : diagnostics.lastSuccessAt,
       lastFixtureCount: fixtures.length,
-      lastErrorCode: null,
-      lastResponseTruncated: payload?.pagination?.has_more === true,
+      lastErrorCode: partialErrorCode,
+      lastResponseTruncated: truncated,
     };
     return fixtures;
   } catch {
