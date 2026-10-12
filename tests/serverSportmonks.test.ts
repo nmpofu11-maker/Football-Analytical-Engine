@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { normalizeSportmonksFixture } from "../src/services/serverSportmonks";
+import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics, normalizeSportmonksFixture } from "../src/services/serverSportmonks";
 
 const now = new Date("2026-10-12T08:00:00Z");
 const baseFixture = (overrides: Record<string, unknown> = {}) => ({
@@ -68,4 +68,61 @@ describe("Sportmonks fixture normalization", () => {
     assert.equal(normalizeSportmonksFixture({ id: 1, starting_at: "2026-10-17 16:30:00" }, undefined, now), null);
     assert.equal(normalizeSportmonksFixture(baseFixture({ league: null }), undefined, now), null);
   });
+
+  it("uses the server-side token header and reports the actual provider response", async () => {
+    const previousKey = process.env.SPORTMONKS_API_KEY;
+    const previousToken = process.env.SPORTMONKS_API_TOKEN;
+    const originalFetch = globalThis.fetch;
+    let requestUrl: URL | null = null;
+    let authorization = "";
+    process.env.SPORTMONKS_API_KEY = "unit-test-token";
+    delete process.env.SPORTMONKS_API_TOKEN;
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      requestUrl = input instanceof URL ? input : new URL(String(input));
+      authorization = new Headers(init?.headers).get("Authorization") || "";
+      return new Response(JSON.stringify({ data: [baseFixture()], pagination: { has_more: true } }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const fixtures = await fetchSportmonksFixtures("2026-10-17");
+      assert.equal(fixtures.length, 1);
+      assert.equal(authorization, "unit-test-token");
+      assert.ok(requestUrl);
+      assert.equal(requestUrl!.searchParams.get("timezone"), "UTC");
+      assert.equal(requestUrl!.searchParams.get("per_page"), "100");
+      assert.equal(requestUrl!.searchParams.has("api_token"), false);
+      const diagnostics = getSportmonksProviderDiagnostics();
+      assert.equal(diagnostics.state, "success");
+      assert.equal(diagnostics.lastFixtureCount, 1);
+      assert.equal(diagnostics.lastResponseTruncated, true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.SPORTMONKS_API_KEY;
+      else process.env.SPORTMONKS_API_KEY = previousKey;
+      if (previousToken === undefined) delete process.env.SPORTMONKS_API_TOKEN;
+      else process.env.SPORTMONKS_API_TOKEN = previousToken;
+    }
+  });
+
+  it("reports missing credentials without attempting a network request", async () => {
+    const previousKey = process.env.SPORTMONKS_API_KEY;
+    const previousToken = process.env.SPORTMONKS_API_TOKEN;
+    const originalFetch = globalThis.fetch;
+    delete process.env.SPORTMONKS_API_KEY;
+    delete process.env.SPORTMONKS_API_TOKEN;
+    globalThis.fetch = (async () => { throw new Error("network should not be called"); }) as typeof fetch;
+    try {
+      assert.deepEqual(await fetchSportmonksFixtures("2026-10-17"), []);
+      assert.equal(getSportmonksProviderDiagnostics().state, "not_configured");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.SPORTMONKS_API_KEY;
+      else process.env.SPORTMONKS_API_KEY = previousKey;
+      if (previousToken === undefined) delete process.env.SPORTMONKS_API_TOKEN;
+      else process.env.SPORTMONKS_API_TOKEN = previousToken;
+    }
+  });
+
 });
