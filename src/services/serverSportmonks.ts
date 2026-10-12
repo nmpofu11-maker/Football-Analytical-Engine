@@ -164,7 +164,7 @@ export async function fetchSportmonksFixtures(dateStr: string): Promise<Sportmon
     diagnostics = { ...diagnostics, state: "not_configured", lastFixtureCount: 0, lastErrorCode: "missing_api_key" };
     return [];
   }
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr)) ||
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || Number.isNaN(Date.parse(dateStr)) ||
       new Date(`${dateStr}T00:00:00Z`).toISOString().slice(0, 10) !== dateStr) {
     diagnostics = { ...diagnostics, state: "invalid_request", lastAttemptAt: new Date().toISOString(), lastFixtureCount: 0, lastErrorCode: "invalid_date" };
     return [];
