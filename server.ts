@@ -14,6 +14,7 @@ import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
 import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics } from "./src/services/serverSportmonks";
 import { reconcileFinalScoreObservations } from "./src/unified/reconciliation";
+import { buildFixtureMergeKey } from "./src/unified/fixtureMergeKey";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
 import {
   getFixtures, saveFixtures,
@@ -310,7 +311,10 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
   const map = new Map<string, any>();
   const put = (item: any, incomingItem: boolean) => {
     if (!item?.homeTeam || !item?.awayTeam || !item?.date) return;
-    const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
+    const key = buildFixtureMergeKey({
+      homeTeam: item.homeTeam, awayTeam: item.awayTeam, date: item.date,
+      competition: item.competition || item.league, time: item.time, kickoffUtc: item.kickoffUtc
+    }) || getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
     const prev = map.get(key);
     if (!prev) {
       map.set(key, {
