@@ -143,3 +143,53 @@ export function reconcileFixtureCandidates(
 
   return { fixtures, rejected };
 }
+
+
+export interface FinalScoreObservation {
+  provider: string;
+  resultSettled: boolean;
+  homeGoals?: unknown;
+  awayGoals?: unknown;
+}
+
+export type FinalScoreResolution =
+  | { status: "missing"; reason: string }
+  | { status: "conflict"; reason: string; scores: Array<{ homeGoals: number; awayGoals: number; providers: string[] }> }
+  | { status: "verified"; homeGoals: number; awayGoals: number; sources: string[] };
+
+/**
+ * Settle only from adapter-verified final scores. If two verified providers
+ * disagree, preserve the disagreement and refuse to select one silently.
+ */
+export function reconcileFinalScoreObservations(observations: FinalScoreObservation[]): FinalScoreResolution {
+  const verified = observations.filter((item) =>
+    item.resultSettled === true &&
+    Number.isSafeInteger(item.homeGoals) && Number(item.homeGoals) >= 0 &&
+    Number.isSafeInteger(item.awayGoals) && Number(item.awayGoals) >= 0 &&
+    item.provider.trim().length > 0
+  );
+  if (verified.length === 0) {
+    return { status: "missing", reason: "No provider supplied a validated final score." };
+  }
+
+  const byScore = new Map<string, { homeGoals: number; awayGoals: number; providers: string[] }>();
+  for (const item of verified) {
+    const homeGoals = Number(item.homeGoals);
+    const awayGoals = Number(item.awayGoals);
+    const key = homeGoals + "-" + awayGoals;
+    const group = byScore.get(key) ?? { homeGoals, awayGoals, providers: [] };
+    if (!group.providers.includes(item.provider)) group.providers.push(item.provider);
+    byScore.set(key, group);
+  }
+
+  const scores = [...byScore.values()];
+  if (scores.length > 1) {
+    return {
+      status: "conflict",
+      reason: "Trusted providers disagree on the final score; automatic settlement is blocked.",
+      scores,
+    };
+  }
+  const score = scores[0]!;
+  return { status: "verified", homeGoals: score.homeGoals, awayGoals: score.awayGoals, sources: score.providers };
+}
