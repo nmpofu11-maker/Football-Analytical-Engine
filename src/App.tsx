@@ -1648,6 +1648,7 @@ export default function App() {
                           {[
                             ["API-Football key", evidenceDiagnostics.providers?.apiFootballKeyConfigured],
                             ["SportAPI.ai key", evidenceDiagnostics.providers?.sportApiAiKeyConfigured],
+                            ["Sportmonks key", evidenceDiagnostics.providers?.sportmonksKeyConfigured],
                             ["TheRundown key", evidenceDiagnostics.providers?.theRundownKeyConfigured],
                             ["Official results endpoint", evidenceDiagnostics.providers?.officialResultsEndpointConfigured]
                           ].map(([label, configured]) => (
@@ -1667,6 +1668,37 @@ export default function App() {
                           )}
                         </div>
                       </div>
+                      <section className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+                        <p className="font-bold text-[#334155] mb-2">Live provider calls</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {[
+                            ["SportAPI.ai", evidenceDiagnostics.providerHealth?.sportApiAi],
+                            ["Sportmonks", evidenceDiagnostics.providerHealth?.sportmonks],
+                            ["TheRundown", evidenceDiagnostics.providerHealth?.theRundown]
+                          ].map(([label, provider]: [string, any]) => {
+                            const state = String(provider?.state || "idle");
+                            const stateLabel = state.replace(/_/g, " ");
+                            const stateClass = state === "success" || state === "cached"
+                              ? "text-emerald-700 bg-emerald-50"
+                              : state === "success_empty"
+                                ? "text-amber-700 bg-amber-50"
+                                : "text-slate-600 bg-slate-100";
+                            return (
+                              <div key={label} className="rounded-lg border border-[#E2E8F0] p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-semibold text-[#334155]">{label}</span>
+                                  <span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${stateClass}`}>{stateLabel}</span>
+                                </div>
+                                <p className="mt-2 text-xs text-[#64748B]">
+                                  {provider?.lastFixtureCount ?? 0} fixtures · HTTP {provider?.lastHttpStatus ?? "—"}
+                                </p>
+                                {provider?.lastErrorCode && <p className="mt-1 break-words text-[10px] text-amber-800">Issue: {provider.lastErrorCode}</p>}
+                                {provider?.lastResponseTruncated && <p className="mt-1 text-[10px] text-amber-800">More provider pages were available than were retrieved.</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
                       {evidenceDiagnostics.modelReadiness?.teamsWithOutOfSampleCalibration === 0 && (
                         <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                           Predictions remain blocked until a valid out-of-sample calibration process has produced evidence. Backfilling final scores alone will not unlock forecasts.
