@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { reconcileFixtureCandidates, type FixtureCandidate } from "../src/unified/reconciliation";
+import { reconcileFinalScoreObservations, reconcileFixtureCandidates, type FixtureCandidate } from "../src/unified/reconciliation";
 
 const candidate = (overrides: Partial<FixtureCandidate> = {}): FixtureCandidate => ({
   provider: "sportmonks",
@@ -75,5 +75,31 @@ describe("provider fixture reconciliation", () => {
     assert.equal(result.rejected.length, 1);
     assert.ok(result.rejected[0]?.reasons.includes("provider event id is required"));
     assert.ok(result.rejected[0]?.reasons.includes("canonical competition id is required"));
+  });
+});
+
+
+describe("verified final score reconciliation", () => {
+  it("accepts corroborating identical final scores", () => {
+    assert.deepEqual(reconcileFinalScoreObservations([
+      { provider: "sportapi-ai", resultSettled: true, homeGoals: 2, awayGoals: 1 },
+      { provider: "sportmonks", resultSettled: true, homeGoals: 2, awayGoals: 1 },
+    ]), { status: "verified", homeGoals: 2, awayGoals: 1, sources: ["sportapi-ai", "sportmonks"] });
+  });
+
+  it("blocks settlement when trusted providers disagree", () => {
+    const result = reconcileFinalScoreObservations([
+      { provider: "sportapi-ai", resultSettled: true, homeGoals: 2, awayGoals: 1 },
+      { provider: "sportmonks", resultSettled: true, homeGoals: 1, awayGoals: 0 },
+    ]);
+    assert.equal(result.status, "conflict");
+    if (result.status === "conflict") assert.equal(result.scores.length, 2);
+  });
+
+  it("does not treat provisional or malformed scores as verified final results", () => {
+    assert.deepEqual(reconcileFinalScoreObservations([
+      { provider: "sportapi-ai", resultSettled: false, homeGoals: 0, awayGoals: 0 },
+      { provider: "sportmonks", resultSettled: true, homeGoals: "TBD", awayGoals: 1 },
+    ]), { status: "missing", reason: "No provider supplied a validated final score." });
   });
 });
