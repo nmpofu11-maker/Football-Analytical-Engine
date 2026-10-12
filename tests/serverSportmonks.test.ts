@@ -73,12 +73,12 @@ describe("Sportmonks fixture normalization", () => {
     const previousKey = process.env.SPORTMONKS_API_KEY;
     const previousToken = process.env.SPORTMONKS_API_TOKEN;
     const originalFetch = globalThis.fetch;
-    let requestUrl: URL | null = null;
+    let requestUrl = "";
     let authorization = "";
     process.env.SPORTMONKS_API_KEY = "unit-test-token";
     delete process.env.SPORTMONKS_API_TOKEN;
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      requestUrl = input instanceof URL ? input : new URL(String(input));
+      requestUrl = input instanceof URL ? input.toString() : String(input);
       authorization = new Headers(init?.headers).get("Authorization") || "";
       return new Response(JSON.stringify({ data: [baseFixture()], pagination: { has_more: true } }), {
         status: 200, headers: { "content-type": "application/json" },
@@ -90,9 +90,10 @@ describe("Sportmonks fixture normalization", () => {
       assert.equal(fixtures.length, 1);
       assert.equal(authorization, "unit-test-token");
       assert.ok(requestUrl);
-      assert.equal(requestUrl!.searchParams.get("timezone"), "UTC");
-      assert.equal(requestUrl!.searchParams.get("per_page"), "100");
-      assert.equal(requestUrl!.searchParams.has("api_token"), false);
+      const requestedUrl = new URL(requestUrl);
+      assert.equal(requestedUrl.searchParams.get("timezone"), "UTC");
+      assert.equal(requestedUrl.searchParams.get("per_page"), "100");
+      assert.equal(requestedUrl.searchParams.has("api_token"), false);
       const diagnostics = getSportmonksProviderDiagnostics();
       assert.equal(diagnostics.state, "success");
       assert.equal(diagnostics.lastFixtureCount, 1);
