@@ -12,7 +12,7 @@ import { simulateMatchup } from "./src/utils/footballMath";
 import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
-import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics } from "./src/services/serverSportmonks";
+import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics, hasSportmonksKey } from "./src/services/serverSportmonks";
 import { reconcileFinalScoreObservations } from "./src/unified/reconciliation";
 import { buildFixtureMergeKey } from "./src/unified/fixtureMergeKey";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
