@@ -1181,11 +1181,24 @@ app.post("/api/results/backfill", async (req, res) => {
       try {
         const sportApiItems = await fetchSportApiAiFixtures(d);
         const sportmonksItems = await fetchSportmonksFixtures(d);
+        const sportApiState = getSportApiAiProviderDiagnostics().state;
+        const sportmonksState = getSportmonksProviderDiagnostics().state;
+        if (process.env.SPORTAPI_AI_KEY && ["http_error", "request_error"].includes(sportApiState)) {
+          errors.push("SportAPI.ai returned " + sportApiState + " while backfilling " + d + ".");
+        }
+        if (hasSportmonksKey() && ["http_error", "request_error", "partial"].includes(sportmonksState)) {
+          errors.push("Sportmonks returned " + sportmonksState + " while backfilling " + d + ".");
+        }
         let observations: any[] = [...sportApiItems, ...sportmonksItems];
         const hasFinalPrimaryEvidence = observations.some(item => item?.resultSettled === true);
         // TheRundown is a secondary fallback for dates with no final scores from the primary pair.
         if (!hasFinalPrimaryEvidence && process.env.THERUNDOWN_KEY) {
-          observations = [...observations, ...(await fetchTheRundownFixtures(d))];
+          const rundownItems = await fetchTheRundownFixtures(d);
+          observations = [...observations, ...rundownItems];
+          const rundownState = getTheRundownProviderDiagnostics().state;
+          if (["http_error", "request_error", "rate_limited", "partial"].includes(rundownState)) {
+            errors.push("TheRundown returned " + rundownState + " while backfilling " + d + ".");
+          }
         }
         providerRecordsFetched += observations.length;
 
@@ -1287,7 +1300,7 @@ app.post("/api/results/backfill", async (req, res) => {
     return res.status(status === "failed" ? 502 : 200).json({
       success: status === "completed",
       status,
-      providerMode: "SportAPI.ai + Sportmonks; TheRundown fallback when primary final evidence is absent",
+      providerMode: "Uses configured SportAPI.ai and/or Sportmonks; TheRundown is a fallback when primary final evidence is absent",
       startDate,
       endDate,
       datesRequested: days,
