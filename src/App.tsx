@@ -68,7 +68,10 @@ async function secureApiFetch(input: RequestInfo | URL, init: RequestInit = {}):
 export default function App() {
   // Theme Dark Mode State (Persisted in LocalStorage)
   const [darkMode, setDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem("football_engine_dark_mode") === "true";
+    // BetMatrix-inspired dark terminal is the default for first-time users.
+    // Respect an explicit saved light/dark preference on later visits.
+    const savedPreference = localStorage.getItem("football_engine_dark_mode");
+    return savedPreference === null ? true : savedPreference === "true";
   });
 
   useEffect(() => {
