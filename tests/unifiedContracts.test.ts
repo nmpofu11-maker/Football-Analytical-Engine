@@ -1,40 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  canRecommendBet,
-  canonicalFixtureKey,
-  validateCanonicalFixture,
-  validateMatchResult,
-  validateOddsSnapshot,
-  validatePredictionSnapshot,
-  validateProbabilityDistribution,
-  validateProviderObservation,
-  type CanonicalFixture,
-  type PredictionSnapshot,
-  type Provenance,
+  canRecommendBet, canonicalFixtureKey, validateCanonicalFixture, validateMatchResult,
+  validateOddsSnapshot, validatePredictionSnapshot, validateProbabilityDistribution,
+  validateProviderObservation, type CanonicalFixture, type PredictionSnapshot, type Provenance,
 } from "../src/unified/contracts";
 
 const source: Provenance = {
-  provider: "sportmonks",
-  providerEventId: "sm-123",
-  retrievedAt: "2026-10-12T07:00:00Z",
+  provider: "sportmonks", providerEventId: "sm-123", retrievedAt: "2026-10-12T07:00:00Z",
 };
-
 const fixture: CanonicalFixture = {
-  id: "fixture-123",
-  homeTeamId: "team-home",
-  awayTeamId: "team-away",
-  competitionId: "league-1",
-  seasonId: "2026",
-  kickoffUtc: "2026-10-17T16:30:00Z",
-  status: "scheduled",
-  providerEventIds: { sportmonks: "sm-123", "sportapi-ai": "sa-987" },
+  id: "fixture-123", homeTeamId: "team-home", awayTeamId: "team-away",
+  competitionId: "league-1", seasonId: "2026", kickoffUtc: "2026-10-17T16:30:00Z",
+  status: "scheduled", providerEventIds: { sportmonks: "sm-123", "sportapi-ai": "sa-987" },
 };
 
 describe("unified canonical evidence contracts", () => {
-  it("accepts a complete canonical fixture", () => {
-    assert.deepEqual(validateCanonicalFixture(fixture), []);
-  });
+  it("accepts a complete canonical fixture", () => assert.deepEqual(validateCanonicalFixture(fixture), []));
 
   it("rejects missing identity, a team playing itself and non-UTC kickoff", () => {
     const invalid = { ...fixture, homeTeamId: "team-home", awayTeamId: "team-home", competitionId: "", kickoffUtc: "2026-10-17T18:30:00+02:00" };
@@ -89,19 +71,21 @@ describe("unified canonical evidence contracts", () => {
     assert.ok(validateProbabilityDistribution({ home: 1.2, draw: -0.1, away: 0 }).length > 0);
   });
 
-  it("rejects a prediction whose data cutoff is after prediction creation", () => {
+  it("rejects data cutoffs after creation and predictions made after kickoff", () => {
     const prediction: PredictionSnapshot = {
-      id: "prediction-1", fixtureId: fixture.id,
+      id: "prediction-1", fixtureId: fixture.id, kickoffUtc: fixture.kickoffUtc,
       createdAt: "2026-10-12T08:00:00Z", dataCutoffUtc: "2026-10-12T08:01:00Z",
       modelVersion: "baseline-v1", probabilities: { home: 0.45, draw: 0.3, away: 0.25 },
       evidenceStatus: "exploratory", reasons: ["Insufficient held-out calibration"],
     };
     assert.ok(validatePredictionSnapshot(prediction).includes("data cutoff cannot be later than prediction creation"));
+    const late = { ...prediction, createdAt: "2026-10-17T16:31:00Z", dataCutoffUtc: "2026-10-17T16:29:00Z" };
+    assert.ok(validatePredictionSnapshot(late).includes("pre-match prediction must be created before kickoff"));
   });
 
   it("does not allow a withheld prediction to publish probabilities", () => {
     const prediction: PredictionSnapshot = {
-      id: "prediction-2", fixtureId: fixture.id,
+      id: "prediction-2", fixtureId: fixture.id, kickoffUtc: fixture.kickoffUtc,
       createdAt: "2026-10-12T08:00:00Z", dataCutoffUtc: "2026-10-12T07:59:00Z",
       modelVersion: "baseline-v1", probabilities: { home: 0.45, draw: 0.3, away: 0.25 },
       evidenceStatus: "withheld", reasons: ["No verified history"],
@@ -116,10 +100,9 @@ describe("unified canonical evidence contracts", () => {
     });
     assert.equal(blocked.allowed, false);
     assert.equal(blocked.reasons.length, 3);
-    const approved = canRecommendBet({
+    assert.deepEqual(canRecommendBet({
       fixtureValid: true, evidenceFresh: true, sufficientHistory: true,
       calibratedOnHoldout: true, exactMarketOddsAvailable: true, modelApproved: true,
-    });
-    assert.deepEqual(approved, { allowed: true, reasons: [] });
+    }), { allowed: true, reasons: [] });
   });
 });
