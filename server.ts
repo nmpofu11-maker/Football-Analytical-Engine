@@ -12,6 +12,9 @@ import { simulateMatchup } from "./src/utils/footballMath";
 import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
+import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics, hasSportmonksKey } from "./src/services/serverSportmonks";
+import { reconcileFinalScoreObservations } from "./src/unified/reconciliation";
+import { buildFixtureMergeKey } from "./src/unified/fixtureMergeKey";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
 import {
   getFixtures, saveFixtures,
@@ -293,6 +296,7 @@ function generatePreMatchPredictions(fixtures: any[]) {
 function sourcePriority(source: string | undefined): number {
   switch (source) {
     case "sportapi-ai": return 100;
+    case "sportmonks": return 98;
     case "therundown":
     case "custom-results-api": return 90;
     case "bookmaker-import":
@@ -307,7 +311,10 @@ function mergeServerSlates(existing: any[], incoming: any[], isIncomingBookmaker
   const map = new Map<string, any>();
   const put = (item: any, incomingItem: boolean) => {
     if (!item?.homeTeam || !item?.awayTeam || !item?.date) return;
-    const key = getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
+    const key = buildFixtureMergeKey({
+      homeTeam: item.homeTeam, awayTeam: item.awayTeam, date: item.date,
+      competition: item.competition || item.league, time: item.time, kickoffUtc: item.kickoffUtc
+    }) || getCompositeKeyServer(item.homeTeam, item.awayTeam, item.date);
     const prev = map.get(key);
     if (!prev) {
       map.set(key, {
@@ -901,7 +908,7 @@ app.post("/api/results/push-scores", (req, res) => {
 });
 
 // Primary automated results scanning function
-async function runAutomaticResultsScan(): Promise<{ settledCount: number; message: string }> {
+async function runAutomaticResultsScan(): Promise<{ settledCount: number; conflictsDetected: number; message: string }> {
   resultsApiConfig.lastScanTimestamp = Date.now();
   resultsApiConfig.lastScanStatus = "Scanning...";
 
@@ -911,10 +918,12 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
   if (unsettled.length === 0) {
     resultsApiConfig.lastScanStatus = "All fixtures already settled";
     saveResultsConfig();
-    return { settledCount: 0, message: "No unsettled fixtures pending score verification." };
+    return { settledCount: 0, conflictsDetected: 0, message: "No unsettled fixtures pending score verification." };
   }
 
   let totalSettled = 0;
+  let conflictsDetected = 0;
+  let configuredApiScoreArray: any[] = [];
   const updatedManifest = [...currentManifest];
 
   // 1. Try fetching scores from Custom Results API URL if configured with Quota Protection
@@ -962,20 +971,8 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
             saveResultsConfig();
 
             const items = data.response || data.results || data.scores || data.fixtures || (Array.isArray(data) ? data : []);
-            scoreArray = items.map((item: any) => {
-              if (item.fixture && item.teams && item.goals) {
-                return {
-                  homeTeam: item.teams.home.name,
-                  awayTeam: item.teams.away.name,
-                  status: item.fixture.status.short,
-                  homeGoals: item.goals.home,
-                  awayGoals: item.goals.away,
-                  date: todayStr
-                };
-              }
-              return item;
-            });
-            console.log(`[API-FOOTBALL] Fetch succeeded. Settling scores for ${scoreArray.length} fixtures.`);
+            scoreArray = Array.isArray(items) ? items : [];
+            console.log(`[API-FOOTBALL] Fetch succeeded. Received ${scoreArray.length} score observations for reconciliation.`);
           }
         } catch (apiErr: any) {
           console.warn("API-Football fetch warning:", apiErr.message);
@@ -983,36 +980,23 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
       }
     }
 
-    if (scoreArray.length > 0) {
-      for (let i = 0; i < updatedManifest.length; i++) {
-        const match = updatedManifest[i];
-        if (match.resultSettled && match.status === "FT") continue;
-
-        const matchKey = getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date);
-        const found = scoreArray.find((s: any) => {
-          const key = getCompositeKeyServer(s.homeTeam || s.home_team, s.awayTeam || s.away_team, s.date || match.date);
-          return key === matchKey;
-        });
-
-        if (found && ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"].includes(String(found.status || "").trim().toUpperCase())) {
-          const rawHome = found.homeGoals ?? found.home_score ?? found.homeScore;
-          const rawAway = found.awayGoals ?? found.away_score ?? found.awayScore;
-          const hG = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
-          const aG = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
-          if (!Number.isSafeInteger(hG) || hG < 0 || !Number.isSafeInteger(aG) || aG < 0) continue;
-          
-          updatedManifest[i] = {
-            ...match,
-            status: "FT",
-            finalScore: { home: hG, away: aG },
-            resultSettled: true,
-            settledAt: new Date().toISOString(),
-            resultSource: getConfiguredResultsSource()
-          };
-          totalSettled++;
-        }
-      }
-    }
+    configuredApiScoreArray = scoreArray.map((item: any) => {
+      const homeTeam = String(item?.teams?.home?.name ?? item?.homeTeam ?? item?.home_team ?? "").trim();
+      const awayTeam = String(item?.teams?.away?.name ?? item?.awayTeam ?? item?.away_team ?? "").trim();
+      const status = String(item?.fixture?.status?.short ?? item?.status ?? item?.match_status ?? "").trim().toUpperCase();
+      const rawHome = item?.goals?.home ?? item?.homeGoals ?? item?.home_score ?? item?.homeScore;
+      const rawAway = item?.goals?.away ?? item?.awayGoals ?? item?.away_score ?? item?.awayScore;
+      const homeGoals = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+      const awayGoals = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+      const kickoffRaw = item?.fixture?.date ?? item?.kickoffUtc ?? item?.datetime ?? item?.kickoff;
+      const kickoff = typeof kickoffRaw === "string" && /[T ]\\d{2}:\\d{2}/.test(kickoffRaw) ? new Date(kickoffRaw) : null;
+      const finalStatus = ["FT", "FINISHED", "FINAL", "AET", "PEN", "FULL_TIME", "FULLTIME", "STATUS_FINAL", "STATUS_FINISHED"].includes(status);
+      const validKickoff = kickoff && Number.isFinite(kickoff.getTime());
+      const date = validKickoff ? kickoff!.toISOString().slice(0, 10) : String(item?.date ?? "");
+      const resultSettled = Boolean(finalStatus && validKickoff && kickoff!.getTime() <= Date.now() + 15 * 60 * 1000 &&
+        Number.isSafeInteger(homeGoals) && homeGoals >= 0 && Number.isSafeInteger(awayGoals) && awayGoals >= 0);
+      return { ...item, homeTeam, awayTeam, status, homeGoals, awayGoals, date, resultSettled, source: "api-football" };
+    });
   }
 
   // 2. Verify remaining past fixtures against trusted score providers only.
@@ -1021,44 +1005,52 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
   for (const date of datesToVerify) {
     const providerResults = [
       ...(await fetchSportApiAiFixtures(date)),
-      ...(await fetchTheRundownFixtures(date))
+      ...(await fetchSportmonksFixtures(date)),
+      ...(await fetchTheRundownFixtures(date)),
+      ...configuredApiScoreArray.filter((r: any) => r.date === date)
     ];
     for (let i = 0; i < updatedManifest.length; i++) {
       const match = updatedManifest[i];
       if (match.resultSettled && match.status === "FT") continue;
-      const found = providerResults.find((r: any) =>
-        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
-        (r.resultSettled === true || r.status === "FT")
+      const matchingObservations = providerResults.filter((r: any) =>
+        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date)
       );
-      if (found) {
-        const rawHome = found.homeGoals;
-        const rawAway = found.awayGoals;
-        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
-        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
-        if (!Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) continue;
-        updatedManifest[i] = {
-          ...match,
-          status: "FT",
-          finalScore: { home, away },
-          resultSettled: true,
-          settledAt: new Date().toISOString(),
-          resultSource: found.source || "trusted-provider"
-        };
-        totalSettled++;
+      const resolution = reconcileFinalScoreObservations(matchingObservations.map((r: any) => ({
+        provider: String(r.source || "trusted-provider"),
+        resultSettled: r.resultSettled === true,
+        homeGoals: r.homeGoals,
+        awayGoals: r.awayGoals
+      })));
+      if (resolution.status === "conflict") {
+        conflictsDetected++;
+        console.warn(`[RESULT CONFLICT] ${match.homeTeam} vs ${match.awayTeam} (${match.date}): ${resolution.reason}`);
+        continue;
       }
+      if (resolution.status !== "verified") continue;
+      updatedManifest[i] = {
+        ...match,
+        status: "FT",
+        finalScore: { home: resolution.homeGoals, away: resolution.awayGoals },
+        resultSettled: true,
+        settledAt: new Date().toISOString(),
+        resultSource: resolution.sources[0] || "trusted-provider",
+        resultSources: resolution.sources
+      };
+      totalSettled++;
     }
   }
 
   saveFixturesToDisk(updatedManifest);
   resultsApiConfig.lastScanSettledCount = totalSettled;
-  resultsApiConfig.lastScanStatus = `Scan completed. Settled ${totalSettled} results.`;
+  resultsApiConfig.lastScanStatus = `Scan completed. Settled ${totalSettled} results; blocked ${conflictsDetected} conflicting result(s).`;
   saveResultsConfig();
 
   recordSettledMatchHistoryServer(updatedManifest);
 
   return {
     settledCount: totalSettled,
-    message: `Scan finished. Verified and settled ${totalSettled} match results!`
+    conflictsDetected,
+    message: `Scan finished. Verified and settled ${totalSettled} results; blocked ${conflictsDetected} result conflict(s).`
   };
 }
 
@@ -1099,6 +1091,7 @@ function recordSettledMatchHistoryServer(manifest: any[]) {
           actualScore: `${match.finalScore.home}-${match.finalScore.away}`,
           isCorrect: pred ? isCorrect : null,
           source: match.resultSource || match.source || "api-football",
+          sources: Array.isArray(match.resultSources) ? match.resultSources : [match.resultSource || match.source || "api-football"],
           verifiedAt: match.settledAt || new Date().toISOString()
         };
         resultsList.push(resItem);
@@ -1160,6 +1153,171 @@ app.post("/api/results/backfill", async (req, res) => {
   const days = Math.round((Date.parse(endDate + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86400000) + 1;
   if (days > 14) return res.status(400).json({ error: "Backfill is limited to 14 calendar days per request to protect provider quota." });
   if (endDate > new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: "Historical backfill cannot include future dates." });
+
+  // Prefer SportAPI.ai + Sportmonks for historical evidence. API-Football remains
+  // a fallback only when the preferred/secondary provider adapters are not configured.
+  if (Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey() || Boolean(process.env.THERUNDOWN_KEY)) {
+    const providerResultsFile = path.join(DATA_DIR, "db_results.json");
+    let providerResultsList: any[] = [];
+    try {
+      if (fs.existsSync(providerResultsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(providerResultsFile, "utf-8"));
+        if (Array.isArray(parsed)) providerResultsList = parsed;
+        else return res.status(500).json({ error: "Existing results store is unreadable; no provider backfill was written." });
+      }
+    } catch {
+      return res.status(500).json({ error: "Existing results store is unreadable; no provider backfill was written." });
+    }
+
+    let providerRecordsFetched = 0;
+    let imported = 0;
+    let corroborated = 0;
+    let skipped = 0;
+    let conflictsDetected = 0;
+    const errors: string[] = [];
+
+    for (let offset = 0; offset < days; offset++) {
+      const d = new Date(Date.parse(startDate + "T00:00:00Z") + offset * 86400000).toISOString().slice(0, 10);
+      try {
+        const sportApiItems = await fetchSportApiAiFixtures(d);
+        const sportmonksItems = await fetchSportmonksFixtures(d);
+        const sportApiState = getSportApiAiProviderDiagnostics().state;
+        const sportmonksState = getSportmonksProviderDiagnostics().state;
+        if (process.env.SPORTAPI_AI_KEY && ["http_error", "request_error"].includes(sportApiState)) {
+          errors.push("SportAPI.ai returned " + sportApiState + " while backfilling " + d + ".");
+        }
+        if (hasSportmonksKey() && ["http_error", "request_error", "partial"].includes(sportmonksState)) {
+          errors.push("Sportmonks returned " + sportmonksState + " while backfilling " + d + ".");
+        }
+        let observations: any[] = [...sportApiItems, ...sportmonksItems];
+        const hasFinalPrimaryEvidence = observations.some(item => item?.resultSettled === true);
+        // TheRundown is a secondary fallback for dates with no final scores from the primary pair.
+        if (!hasFinalPrimaryEvidence && process.env.THERUNDOWN_KEY) {
+          const rundownItems = await fetchTheRundownFixtures(d);
+          observations = [...observations, ...rundownItems];
+          const rundownState = getTheRundownProviderDiagnostics().state;
+          if (["http_error", "request_error", "rate_limited", "partial"].includes(rundownState)) {
+            errors.push("TheRundown returned " + rundownState + " while backfilling " + d + ".");
+          }
+        }
+        providerRecordsFetched += observations.length;
+
+        const groups = new Map<string, any[]>();
+        for (const item of observations) {
+          if (item?.resultSettled !== true) { skipped++; continue; }
+          const homeTeam = String(item.homeTeam || item.home_team || "").trim();
+          const awayTeam = String(item.awayTeam || item.away_team || "").trim();
+          const homeGoals = item.homeGoals === null || item.homeGoals === undefined || item.homeGoals === "" ? NaN : Number(item.homeGoals);
+          const awayGoals = item.awayGoals === null || item.awayGoals === undefined || item.awayGoals === "" ? NaN : Number(item.awayGoals);
+          const kickoffRaw = item.kickoffUtc || (item.date && item.time ? String(item.date) + "T" + String(item.time).slice(0, 5) + ":00Z" : "");
+          const kickoff = kickoffRaw ? new Date(kickoffRaw) : null;
+          if (!homeTeam || !awayTeam || homeTeam.toLowerCase() === awayTeam.toLowerCase() ||
+              !Number.isSafeInteger(homeGoals) || homeGoals < 0 || !Number.isSafeInteger(awayGoals) || awayGoals < 0 ||
+              !kickoff || !Number.isFinite(kickoff.getTime()) || kickoff.toISOString().slice(0, 10) !== d ||
+              kickoff.getTime() > Date.now() + 15 * 60 * 1000) {
+            skipped++;
+            continue;
+          }
+          const key = getCompositeKeyServer(homeTeam, awayTeam, d);
+          const group = groups.get(key) || [];
+          group.push({ ...item, homeTeam, awayTeam, homeGoals, awayGoals, date: d, kickoffUtc: kickoff.toISOString() });
+          groups.set(key, group);
+        }
+
+        for (const [matchKey, group] of groups) {
+          const resolution = reconcileFinalScoreObservations(group.map(item => ({
+            provider: String(item.source || "trusted-provider"),
+            resultSettled: item.resultSettled === true,
+            homeGoals: item.homeGoals,
+            awayGoals: item.awayGoals
+          })));
+          if (resolution.status === "conflict") {
+            conflictsDetected++;
+            skipped += group.length;
+            continue;
+          }
+          if (resolution.status !== "verified") { skipped += group.length; continue; }
+
+          const first = group[0];
+          const existing = providerResultsList.find((record: any) => String(record.matchKey || "") === matchKey);
+          const actualScore = resolution.homeGoals + "-" + resolution.awayGoals;
+          if (existing) {
+            if (String(existing.actualScore || "").replace(/\s/g, "") !== actualScore) {
+              existing.verificationStatus = "conflict";
+              existing.conflictingResultEvidence = [
+                ...(Array.isArray(existing.conflictingResultEvidence) ? existing.conflictingResultEvidence : []),
+                ...group.map(item => ({ source: item.source || "trusted-provider", actualScore, verifiedAt: item.ingestedAt || new Date().toISOString() }))
+              ];
+              conflictsDetected++;
+            } else {
+              existing.sources = [...new Set([...(Array.isArray(existing.sources) ? existing.sources : [existing.source].filter(Boolean)), ...resolution.sources])];
+              existing.verificationStatus = existing.verificationStatus === "conflict" ? "conflict" : "verified";
+              corroborated++;
+            }
+            skipped++;
+            continue;
+          }
+
+          const actualOutcome = resolution.homeGoals > resolution.awayGoals ? "1" : resolution.homeGoals < resolution.awayGoals ? "2" : "X";
+          providerResultsList.push({
+            id: "hist-" + matchKey,
+            matchKey,
+            homeTeam: first.homeTeam,
+            awayTeam: first.awayTeam,
+            date: d,
+            competition: String(first.competition || "Unknown competition"),
+            kickoffUtc: first.kickoffUtc,
+            hasPriorPrediction: false,
+            predictedOutcome: "N/A (Historical backfill)",
+            actualOutcome,
+            predictedScore: "N/A",
+            actualScore,
+            isCorrect: null,
+            source: resolution.sources[0] || "trusted-provider",
+            sources: resolution.sources,
+            verificationStatus: "verified",
+            verifiedAt: new Date().toISOString()
+          });
+          imported++;
+        }
+      } catch (error: any) {
+        errors.push("Provider backfill failed for " + d + ": " + String(error?.message || "unknown error"));
+      }
+    }
+
+    const temporaryProviderFile = providerResultsFile + ".tmp";
+    try {
+      ensureDataDir();
+      fs.writeFileSync(temporaryProviderFile, JSON.stringify(providerResultsList, null, 2), "utf-8");
+      fs.renameSync(temporaryProviderFile, providerResultsFile);
+    } catch (writeError: any) {
+      try { if (fs.existsSync(temporaryProviderFile)) fs.unlinkSync(temporaryProviderFile); } catch {}
+      console.error("[PROVIDER BACKFILL] Failed to persist imported results:", writeError);
+      return res.status(500).json({ error: "Provider backfill could not be safely persisted; check server storage permissions." });
+    }
+
+    const status = errors.length === 0 && conflictsDetected === 0 ? "completed" : imported > 0 || corroborated > 0 || conflictsDetected > 0 ? "partial" : "failed";
+    return res.status(status === "failed" ? 502 : 200).json({
+      success: status === "completed",
+      status,
+      providerMode: "Uses configured SportAPI.ai and/or Sportmonks; TheRundown is a fallback when primary final evidence is absent",
+      startDate,
+      endDate,
+      datesRequested: days,
+      providerRecordsFetched,
+      imported,
+      corroborated,
+      skipped,
+      conflictsDetected,
+      totalVerifiedRecords: providerResultsList.filter(record => record.verificationStatus !== "conflict").length,
+      errors,
+      providerHealth: {
+        sportApiAi: getSportApiAiProviderDiagnostics(),
+        sportmonks: getSportmonksProviderDiagnostics(),
+        theRundown: getTheRundownProviderDiagnostics()
+      }
+    });
+  }
   const apiKey = process.env.API_FOOTBALL_KEY || "";
   if (!apiKey) return res.status(503).json({ error: "API_FOOTBALL_KEY is not configured." });
   let endpoint = "";
@@ -1341,12 +1499,14 @@ app.get("/api/diagnostics/evidence", (req, res) => {
   } catch {}
 
   const storageHealth = inspectStoragePath();
+  const preferredBackfillProviderConfigured = Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey() || Boolean(process.env.THERUNDOWN_KEY);
 
   return res.json({
     generatedAt: new Date().toISOString(),
     providers: {
       apiFootballKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY),
       sportApiAiKeyConfigured: Boolean(process.env.SPORTAPI_AI_KEY),
+      sportmonksKeyConfigured: Boolean(process.env.SPORTMONKS_API_KEY || process.env.SPORTMONKS_API_TOKEN),
       theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
       resultsEndpointConfigured: Boolean(configuredEndpoint),
       dataDirectoryConfigured: Boolean(process.env.DATA_DIR),
@@ -1357,6 +1517,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     },
     providerHealth: {
       sportApiAi: getSportApiAiProviderDiagnostics(),
+      sportmonks: getSportmonksProviderDiagnostics(),
       theRundown: getTheRundownProviderDiagnostics(),
       note: "These are the latest in-process provider call results. A cold instance reports idle until a fixture request or scheduled ingest runs."
     },
@@ -1377,9 +1538,11 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       canGenerateCalibratedPredictions: calibratedTeams.length > 0
     },
     backfill: {
-      configured: Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured,
+      configured: preferredBackfillProviderConfigured || (Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured),
+      preferredProvidersConfigured: Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey(),
+      apiFootballFallbackConfigured: Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured,
       maximumDaysPerRequest: 14,
-      note: "Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
+      note: "Historical backfill prefers SportAPI.ai and Sportmonks, with TheRundown as a secondary fallback; API-Football remains optional. Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
     },
     storage: {
       mode: storageHealth.mountedStorageDetected ? "mounted-filesystem" : "local-filesystem",
@@ -1490,7 +1653,7 @@ function checkAndIncrementQuota(): boolean {
   return true;
 }
 
-// 3. API: Dynamic Fixtures Fetcher with SportAPI.ai (Primary) & TheRundown (Secondary) Priority
+// 3. API: Dynamic Fixtures Fetcher with SportAPI.ai + Sportmonks (Primary) and TheRundown (Secondary)
 app.get("/api/real-fixtures", async (req, res) => {
   const targetDate = (req.query.date as string) || getTodayDateStrServer();
   try {
@@ -1518,6 +1681,8 @@ app.get("/api/real-fixtures", async (req, res) => {
     const sources: string[] = [];
     const sportApiFixtures = await fetchSportApiAiFixtures(targetDate);
     if (sportApiFixtures.length) { providerResults.push(...sportApiFixtures); sources.push("sportapi-ai"); }
+    const sportmonksFixtures = await fetchSportmonksFixtures(targetDate);
+    if (sportmonksFixtures.length) { providerResults.push(...sportmonksFixtures); sources.push("sportmonks"); }
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
     if (rundownFixtures.length) { providerResults.push(...rundownFixtures); sources.push("therundown"); }
 
@@ -1562,7 +1727,7 @@ let cronStatusInfo = {
   lastIngestStatus: "Idle",
   lastSettlementTime: null as string | null,
   lastSettlementStatus: "Idle",
-  primaryProvider: "sportapi-ai",
+  primaryProvider: "sportapi-ai + sportmonks",
   secondaryProvider: "therundown"
 };
 
@@ -1578,9 +1743,10 @@ async function runScheduledIngestAndSettlement() {
     console.log(`[CRON] Running daily automated fixture ingestion for ${todayStr}...`);
     try {
       const primary = await fetchSportApiAiFixtures(todayStr);
+      const sportmonks = await fetchSportmonksFixtures(todayStr);
       const secondary = await fetchTheRundownFixtures(todayStr);
-      const fixtures = [...primary, ...secondary];
-      const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+      const fixtures = [...primary, ...sportmonks, ...secondary];
+      const sourceUsed = [primary.length ? "sportapi-ai" : "", sportmonks.length ? "sportmonks" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
       if (fixtures.length > 0) {
         const manifest = loadPersistedFixturesFromDisk();
         const merged = mergeServerSlates(manifest, fixtures);
@@ -1625,9 +1791,10 @@ app.post("/api/admin/run-ingest-now", async (req, res) => {
   try {
     const targetDate = req.body.date || getTodayDateStrServer();
     const primary = await fetchSportApiAiFixtures(targetDate);
+    const sportmonks = await fetchSportmonksFixtures(targetDate);
     const secondary = await fetchTheRundownFixtures(targetDate);
-    const fixtures = [...primary, ...secondary];
-    const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+    const fixtures = [...primary, ...sportmonks, ...secondary];
+    const sourceUsed = [primary.length ? "sportapi-ai" : "", sportmonks.length ? "sportmonks" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
     const manifest = loadPersistedFixturesFromDisk();
     const merged = mergeServerSlates(manifest, fixtures);
     saveFixturesToDisk(merged);

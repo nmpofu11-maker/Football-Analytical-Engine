@@ -43,36 +43,37 @@ html.dark-theme,
 body.dark-theme,
 :root.dark-theme,
 .dark-theme {
-  --bg-app: #010705;             /* Deep dark obsidian green pitch */
-  --bg-card: #041411;            /* Dark forest green structural card */
-  --bg-header: #010a08;          /* Dark obsidian pitch slate header */
-  --bg-badge: #061e1a;           /* Deep dark green badge */
-  --bg-accent: #02241b;          /* Forest highlight box */
-  --bg-accent-badge: #013326;    /* Dark pine team highlights */
-  --border-primary: #0c332a;     /* Deep structural border line */
-  
-  --text-primary: #ffffff;       /* Pure white readability */
-  --text-secondary: #a7f3d0;     /* Highly visible light-mint text */
-  --text-muted: #6ee7b7;         /* High-contrast bright mint */
-  --text-accent: #10b981;        /* Radiant neon emerald */
-  
-  --btn-active-bg: #072620;      /* Dark active button backer */
-  --btn-active-text: #10b981;    /* Bright active text */
-  --btn-active-border: #10b981;  /* Bright active border */
-  
-  --input-bg: #010807;           /* Pitch black turf input */
-  --input-border: #0c332a;       /* Dark forest input outline */
-  --input-text: #ffffff;         /* Crisp typed text */
-  
-  --calendar-filter: invert(1) sepia(1) saturate(5) hue-rotate(90deg);
-  --blue-bg: #031424;            /* Midnight blue information blocks */
-  --blue-text: #60a5fa;          /* Luminous sky blue text */
-  
-  --warn-bg: #211201;            /* Roast amber warning highlight */
-  --warn-border: #b45309;        /* Deep amber stroke */
-  --warn-text: #fde047;          /* High contrast neon gold text */
-  
-  --row-hover-bg: #05211b;       /* Hover highlight forest row */
+  /* BetMatrix-inspired terminal: charcoal, purple/indigo, amber, and emerald status */
+  --bg-app: #0d1117;
+  --bg-card: #111827;
+  --bg-header: #0d1117;
+  --bg-badge: #1f2937;
+  --bg-accent: #1b1530;
+  --bg-accent-badge: #2b1b49;
+  --border-primary: #352653;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-accent: #a78bfa;
+
+  --btn-active-bg: #211638;
+  --btn-active-text: #fbbf24;
+  --btn-active-border: #8b5cf6;
+
+  --input-bg: #0b1220;
+  --input-border: #493568;
+  --input-text: #f8fafc;
+
+  --calendar-filter: invert(1) sepia(1) saturate(5) hue-rotate(220deg);
+  --blue-bg: #10243d;
+  --blue-text: #93c5fd;
+
+  --warn-bg: #33220b;
+  --warn-border: #d97706;
+  --warn-text: #fcd34d;
+
+  --row-hover-bg: #211638;
 }
 
 /* 3. Global Structural Elements - Core Layout mapping */
@@ -341,3 +342,43 @@ td, th {
   color: #10b981 !important;
 }
 
+
+
+/* BetMatrix visual language mapping for existing Football Analytical Engine classes.
+   Preserve emerald/red/blue semantic status colors; remap the app's legacy green brand
+   accents to purple, with amber for emphasis and primary actions. */
+.dark-theme [class*="bg-[#15803D]"] {
+  background-color: #6d28d9 !important;
+}
+.dark-theme [class*="hover:bg-[#166534]"]:hover {
+  background-color: #7c3aed !important;
+}
+.dark-theme [class*="text-[#15803D]"] {
+  color: #c4b5fd !important;
+}
+.dark-theme [class*="border-[#15803D]"] {
+  border-color: #8b5cf6 !important;
+}
+.dark-theme [class*="focus:ring-[#15803D]"]:focus {
+  --tw-ring-color: #8b5cf6 !important;
+}
+.dark-theme [class*="bg-[#E8F5E9]"] {
+  background-color: #2b1b49 !important;
+  border-color: #6d28d9 !important;
+  color: #ddd6fe !important;
+}
+.dark-theme [class*="bg-[#F0FDF4]"] {
+  background-color: #1b1530 !important;
+  border-color: #6d28d9 !important;
+  color: #f8fafc !important;
+}
+.dark-theme [class*="border-[#C8E6C9]"] {
+  border-color: #6d28d9 !important;
+}
+.dark-theme button[class*="bg-[#15803D]"] {
+  box-shadow: 0 4px 14px rgba(109, 40, 217, 0.18);
+}
+.dark-theme button[class*="bg-amber-500"],
+.dark-theme button[class*="from-amber-500"] {
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.18);
+}
