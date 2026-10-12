@@ -1675,7 +1675,7 @@ export default function App() {
                             ["SportAPI.ai", evidenceDiagnostics.providerHealth?.sportApiAi],
                             ["Sportmonks", evidenceDiagnostics.providerHealth?.sportmonks],
                             ["TheRundown", evidenceDiagnostics.providerHealth?.theRundown]
-                          ].map(([label, provider]: [string, any]) => {
+                          ].map(([label, provider]) => {
                             const state = String(provider?.state || "idle");
                             const stateLabel = state.replace(/_/g, " ");
                             const stateClass = state === "success" || state === "cached"
