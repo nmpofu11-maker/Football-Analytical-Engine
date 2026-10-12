@@ -1052,7 +1052,8 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; confli
         finalScore: { home: resolution.homeGoals, away: resolution.awayGoals },
         resultSettled: true,
         settledAt: new Date().toISOString(),
-        resultSource: resolution.sources.join("+")
+        resultSource: resolution.sources[0] || "trusted-provider",
+        resultSources: resolution.sources
       };
       totalSettled++;
     }
@@ -1109,6 +1110,7 @@ function recordSettledMatchHistoryServer(manifest: any[]) {
           actualScore: `${match.finalScore.home}-${match.finalScore.away}`,
           isCorrect: pred ? isCorrect : null,
           source: match.resultSource || match.source || "api-football",
+          sources: Array.isArray(match.resultSources) ? match.resultSources : [match.resultSource || match.source || "api-football"],
           verifiedAt: match.settledAt || new Date().toISOString()
         };
         resultsList.push(resItem);
