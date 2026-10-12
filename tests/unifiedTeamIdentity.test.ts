@@ -37,9 +37,10 @@ describe("canonical team identity resolution", () => {
     assert.deepEqual(resolveTeamIdentity("unknown-provider", undefined, "Manchester Rovers", teams), {
       status: "unresolved", teamId: null, candidates: [],
     });
-    const ambiguous = [
+    const ambiguous: CanonicalTeamIdentity[] = [
       ...teams,
       { id: "another-team", canonicalName: "Rovers FC", aliases: ["Rovers"], providerIds: {} },
+      { id: "another-rovers", canonicalName: "Old Rovers", aliases: ["Rovers"], providerIds: {} },
     ];
     const result = resolveTeamIdentity("unknown-provider", undefined, "Rovers", ambiguous);
     assert.equal(result.status, "ambiguous");
