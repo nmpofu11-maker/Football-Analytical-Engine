@@ -13,6 +13,7 @@ import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
 import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics } from "./src/services/serverSportmonks";
+import { reconcileFinalScoreObservations } from "./src/unified/reconciliation";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
 import {
   getFixtures, saveFixtures,
@@ -903,7 +904,7 @@ app.post("/api/results/push-scores", (req, res) => {
 });
 
 // Primary automated results scanning function
-async function runAutomaticResultsScan(): Promise<{ settledCount: number; message: string }> {
+async function runAutomaticResultsScan(): Promise<{ settledCount: number; conflictsDetected: number; message: string }> {
   resultsApiConfig.lastScanTimestamp = Date.now();
   resultsApiConfig.lastScanStatus = "Scanning...";
 
@@ -913,10 +914,11 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
   if (unsettled.length === 0) {
     resultsApiConfig.lastScanStatus = "All fixtures already settled";
     saveResultsConfig();
-    return { settledCount: 0, message: "No unsettled fixtures pending score verification." };
+    return { settledCount: 0, conflictsDetected: 0, message: "No unsettled fixtures pending score verification." };
   }
 
   let totalSettled = 0;
+  let conflictsDetected = 0;
   const updatedManifest = [...currentManifest];
 
   // 1. Try fetching scores from Custom Results API URL if configured with Quota Protection
@@ -1029,39 +1031,44 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
     for (let i = 0; i < updatedManifest.length; i++) {
       const match = updatedManifest[i];
       if (match.resultSettled && match.status === "FT") continue;
-      const found = providerResults.find((r: any) =>
-        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date) &&
-        (r.resultSettled === true || r.status === "FT")
+      const matchingObservations = providerResults.filter((r: any) =>
+        getCompositeKeyServer(r.homeTeam, r.awayTeam, r.date) === getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date)
       );
-      if (found) {
-        const rawHome = found.homeGoals;
-        const rawAway = found.awayGoals;
-        const home = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
-        const away = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
-        if (!Number.isSafeInteger(home) || home < 0 || !Number.isSafeInteger(away) || away < 0) continue;
-        updatedManifest[i] = {
-          ...match,
-          status: "FT",
-          finalScore: { home, away },
-          resultSettled: true,
-          settledAt: new Date().toISOString(),
-          resultSource: found.source || "trusted-provider"
-        };
-        totalSettled++;
+      const resolution = reconcileFinalScoreObservations(matchingObservations.map((r: any) => ({
+        provider: String(r.source || "trusted-provider"),
+        resultSettled: r.resultSettled === true,
+        homeGoals: r.homeGoals,
+        awayGoals: r.awayGoals
+      })));
+      if (resolution.status === "conflict") {
+        conflictsDetected++;
+        console.warn(`[RESULT CONFLICT] ${match.homeTeam} vs ${match.awayTeam} (${match.date}): ${resolution.reason}`);
+        continue;
       }
+      if (resolution.status !== "verified") continue;
+      updatedManifest[i] = {
+        ...match,
+        status: "FT",
+        finalScore: { home: resolution.homeGoals, away: resolution.awayGoals },
+        resultSettled: true,
+        settledAt: new Date().toISOString(),
+        resultSource: resolution.sources.join("+")
+      };
+      totalSettled++;
     }
   }
 
   saveFixturesToDisk(updatedManifest);
   resultsApiConfig.lastScanSettledCount = totalSettled;
-  resultsApiConfig.lastScanStatus = `Scan completed. Settled ${totalSettled} results.`;
+  resultsApiConfig.lastScanStatus = `Scan completed. Settled ${totalSettled} results; blocked ${conflictsDetected} conflicting result(s).`;
   saveResultsConfig();
 
   recordSettledMatchHistoryServer(updatedManifest);
 
   return {
     settledCount: totalSettled,
-    message: `Scan finished. Verified and settled ${totalSettled} match results!`
+    conflictsDetected,
+    message: `Scan finished. Verified and settled ${totalSettled} results; blocked ${conflictsDetected} result conflict(s).`
   };
 }
 
