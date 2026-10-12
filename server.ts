@@ -1153,6 +1153,158 @@ app.post("/api/results/backfill", async (req, res) => {
   const days = Math.round((Date.parse(endDate + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86400000) + 1;
   if (days > 14) return res.status(400).json({ error: "Backfill is limited to 14 calendar days per request to protect provider quota." });
   if (endDate > new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: "Historical backfill cannot include future dates." });
+
+  // Prefer SportAPI.ai + Sportmonks for historical evidence. API-Football remains
+  // a fallback only when the preferred/secondary provider adapters are not configured.
+  if (Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey() || Boolean(process.env.THERUNDOWN_KEY)) {
+    const providerResultsFile = path.join(DATA_DIR, "db_results.json");
+    let providerResultsList: any[] = [];
+    try {
+      if (fs.existsSync(providerResultsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(providerResultsFile, "utf-8"));
+        if (Array.isArray(parsed)) providerResultsList = parsed;
+        else return res.status(500).json({ error: "Existing results store is unreadable; no provider backfill was written." });
+      }
+    } catch {
+      return res.status(500).json({ error: "Existing results store is unreadable; no provider backfill was written." });
+    }
+
+    let providerRecordsFetched = 0;
+    let imported = 0;
+    let corroborated = 0;
+    let skipped = 0;
+    let conflictsDetected = 0;
+    const errors: string[] = [];
+
+    for (let offset = 0; offset < days; offset++) {
+      const d = new Date(Date.parse(startDate + "T00:00:00Z") + offset * 86400000).toISOString().slice(0, 10);
+      try {
+        const sportApiItems = await fetchSportApiAiFixtures(d);
+        const sportmonksItems = await fetchSportmonksFixtures(d);
+        let observations: any[] = [...sportApiItems, ...sportmonksItems];
+        const hasFinalPrimaryEvidence = observations.some(item => item?.resultSettled === true);
+        // TheRundown is a secondary fallback for dates with no final scores from the primary pair.
+        if (!hasFinalPrimaryEvidence && process.env.THERUNDOWN_KEY) {
+          observations = [...observations, ...(await fetchTheRundownFixtures(d))];
+        }
+        providerRecordsFetched += observations.length;
+
+        const groups = new Map<string, any[]>();
+        for (const item of observations) {
+          if (item?.resultSettled !== true) { skipped++; continue; }
+          const homeTeam = String(item.homeTeam || item.home_team || "").trim();
+          const awayTeam = String(item.awayTeam || item.away_team || "").trim();
+          const homeGoals = item.homeGoals === null || item.homeGoals === undefined || item.homeGoals === "" ? NaN : Number(item.homeGoals);
+          const awayGoals = item.awayGoals === null || item.awayGoals === undefined || item.awayGoals === "" ? NaN : Number(item.awayGoals);
+          const kickoffRaw = item.kickoffUtc || (item.date && item.time ? String(item.date) + "T" + String(item.time).slice(0, 5) + ":00Z" : "");
+          const kickoff = kickoffRaw ? new Date(kickoffRaw) : null;
+          if (!homeTeam || !awayTeam || homeTeam.toLowerCase() === awayTeam.toLowerCase() ||
+              !Number.isSafeInteger(homeGoals) || homeGoals < 0 || !Number.isSafeInteger(awayGoals) || awayGoals < 0 ||
+              !kickoff || !Number.isFinite(kickoff.getTime()) || kickoff.toISOString().slice(0, 10) !== d ||
+              kickoff.getTime() > Date.now() + 15 * 60 * 1000) {
+            skipped++;
+            continue;
+          }
+          const key = getCompositeKeyServer(homeTeam, awayTeam, d);
+          const group = groups.get(key) || [];
+          group.push({ ...item, homeTeam, awayTeam, homeGoals, awayGoals, date: d, kickoffUtc: kickoff.toISOString() });
+          groups.set(key, group);
+        }
+
+        for (const [matchKey, group] of groups) {
+          const resolution = reconcileFinalScoreObservations(group.map(item => ({
+            provider: String(item.source || "trusted-provider"),
+            resultSettled: item.resultSettled === true,
+            homeGoals: item.homeGoals,
+            awayGoals: item.awayGoals
+          })));
+          if (resolution.status === "conflict") {
+            conflictsDetected++;
+            skipped += group.length;
+            continue;
+          }
+          if (resolution.status !== "verified") { skipped += group.length; continue; }
+
+          const first = group[0];
+          const existing = providerResultsList.find((record: any) => String(record.matchKey || "") === matchKey);
+          const actualScore = resolution.homeGoals + "-" + resolution.awayGoals;
+          if (existing) {
+            if (String(existing.actualScore || "").replace(/\s/g, "") !== actualScore) {
+              existing.verificationStatus = "conflict";
+              existing.conflictingResultEvidence = [
+                ...(Array.isArray(existing.conflictingResultEvidence) ? existing.conflictingResultEvidence : []),
+                ...group.map(item => ({ source: item.source || "trusted-provider", actualScore, verifiedAt: item.ingestedAt || new Date().toISOString() }))
+              ];
+              conflictsDetected++;
+            } else {
+              existing.sources = [...new Set([...(Array.isArray(existing.sources) ? existing.sources : [existing.source].filter(Boolean)), ...resolution.sources])];
+              existing.verificationStatus = existing.verificationStatus === "conflict" ? "conflict" : "verified";
+              corroborated++;
+            }
+            skipped++;
+            continue;
+          }
+
+          const actualOutcome = resolution.homeGoals > resolution.awayGoals ? "1" : resolution.homeGoals < resolution.awayGoals ? "2" : "X";
+          providerResultsList.push({
+            id: "hist-" + matchKey,
+            matchKey,
+            homeTeam: first.homeTeam,
+            awayTeam: first.awayTeam,
+            date: d,
+            competition: String(first.competition || "Unknown competition"),
+            kickoffUtc: first.kickoffUtc,
+            hasPriorPrediction: false,
+            predictedOutcome: "N/A (Historical backfill)",
+            actualOutcome,
+            predictedScore: "N/A",
+            actualScore,
+            isCorrect: null,
+            source: resolution.sources[0] || "trusted-provider",
+            sources: resolution.sources,
+            verificationStatus: "verified",
+            verifiedAt: new Date().toISOString()
+          });
+          imported++;
+        }
+      } catch (error: any) {
+        errors.push("Provider backfill failed for " + d + ": " + String(error?.message || "unknown error"));
+      }
+    }
+
+    const temporaryProviderFile = providerResultsFile + ".tmp";
+    try {
+      ensureDataDir();
+      fs.writeFileSync(temporaryProviderFile, JSON.stringify(providerResultsList, null, 2), "utf-8");
+      fs.renameSync(temporaryProviderFile, providerResultsFile);
+    } catch (writeError: any) {
+      try { if (fs.existsSync(temporaryProviderFile)) fs.unlinkSync(temporaryProviderFile); } catch {}
+      console.error("[PROVIDER BACKFILL] Failed to persist imported results:", writeError);
+      return res.status(500).json({ error: "Provider backfill could not be safely persisted; check server storage permissions." });
+    }
+
+    const status = errors.length === 0 && conflictsDetected === 0 ? "completed" : imported > 0 || corroborated > 0 || conflictsDetected > 0 ? "partial" : "failed";
+    return res.status(status === "failed" ? 502 : 200).json({
+      success: status === "completed",
+      status,
+      providerMode: "SportAPI.ai + Sportmonks; TheRundown fallback when primary final evidence is absent",
+      startDate,
+      endDate,
+      datesRequested: days,
+      providerRecordsFetched,
+      imported,
+      corroborated,
+      skipped,
+      conflictsDetected,
+      totalVerifiedRecords: providerResultsList.filter(record => record.verificationStatus !== "conflict").length,
+      errors,
+      providerHealth: {
+        sportApiAi: getSportApiAiProviderDiagnostics(),
+        sportmonks: getSportmonksProviderDiagnostics(),
+        theRundown: getTheRundownProviderDiagnostics()
+      }
+    });
+  }
   const apiKey = process.env.API_FOOTBALL_KEY || "";
   if (!apiKey) return res.status(503).json({ error: "API_FOOTBALL_KEY is not configured." });
   let endpoint = "";
