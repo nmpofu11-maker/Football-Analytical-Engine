@@ -919,6 +919,7 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; confli
 
   let totalSettled = 0;
   let conflictsDetected = 0;
+  let configuredApiScoreArray: any[] = [];
   const updatedManifest = [...currentManifest];
 
   // 1. Try fetching scores from Custom Results API URL if configured with Quota Protection
@@ -966,20 +967,8 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; confli
             saveResultsConfig();
 
             const items = data.response || data.results || data.scores || data.fixtures || (Array.isArray(data) ? data : []);
-            scoreArray = items.map((item: any) => {
-              if (item.fixture && item.teams && item.goals) {
-                return {
-                  homeTeam: item.teams.home.name,
-                  awayTeam: item.teams.away.name,
-                  status: item.fixture.status.short,
-                  homeGoals: item.goals.home,
-                  awayGoals: item.goals.away,
-                  date: todayStr
-                };
-              }
-              return item;
-            });
-            console.log(`[API-FOOTBALL] Fetch succeeded. Settling scores for ${scoreArray.length} fixtures.`);
+            scoreArray = Array.isArray(items) ? items : [];
+            console.log(`[API-FOOTBALL] Fetch succeeded. Received ${scoreArray.length} score observations for reconciliation.`);
           }
         } catch (apiErr: any) {
           console.warn("API-Football fetch warning:", apiErr.message);
@@ -987,36 +976,23 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; confli
       }
     }
 
-    if (scoreArray.length > 0) {
-      for (let i = 0; i < updatedManifest.length; i++) {
-        const match = updatedManifest[i];
-        if (match.resultSettled && match.status === "FT") continue;
-
-        const matchKey = getCompositeKeyServer(match.homeTeam, match.awayTeam, match.date);
-        const found = scoreArray.find((s: any) => {
-          const key = getCompositeKeyServer(s.homeTeam || s.home_team, s.awayTeam || s.away_team, s.date || match.date);
-          return key === matchKey;
-        });
-
-        if (found && ["FT", "FINISHED", "FINAL", "AET", "PEN", "AFTER EXTRA TIME", "AFTER PENALTIES", "STATUS_FINAL", "STATUS_FINISHED"].includes(String(found.status || "").trim().toUpperCase())) {
-          const rawHome = found.homeGoals ?? found.home_score ?? found.homeScore;
-          const rawAway = found.awayGoals ?? found.away_score ?? found.awayScore;
-          const hG = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
-          const aG = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
-          if (!Number.isSafeInteger(hG) || hG < 0 || !Number.isSafeInteger(aG) || aG < 0) continue;
-          
-          updatedManifest[i] = {
-            ...match,
-            status: "FT",
-            finalScore: { home: hG, away: aG },
-            resultSettled: true,
-            settledAt: new Date().toISOString(),
-            resultSource: getConfiguredResultsSource()
-          };
-          totalSettled++;
-        }
-      }
-    }
+    configuredApiScoreArray = scoreArray.map((item: any) => {
+      const homeTeam = String(item?.teams?.home?.name ?? item?.homeTeam ?? item?.home_team ?? "").trim();
+      const awayTeam = String(item?.teams?.away?.name ?? item?.awayTeam ?? item?.away_team ?? "").trim();
+      const status = String(item?.fixture?.status?.short ?? item?.status ?? item?.match_status ?? "").trim().toUpperCase();
+      const rawHome = item?.goals?.home ?? item?.homeGoals ?? item?.home_score ?? item?.homeScore;
+      const rawAway = item?.goals?.away ?? item?.awayGoals ?? item?.away_score ?? item?.awayScore;
+      const homeGoals = rawHome === null || rawHome === undefined || rawHome === "" ? NaN : Number(rawHome);
+      const awayGoals = rawAway === null || rawAway === undefined || rawAway === "" ? NaN : Number(rawAway);
+      const kickoffRaw = item?.fixture?.date ?? item?.kickoffUtc ?? item?.datetime ?? item?.kickoff;
+      const kickoff = typeof kickoffRaw === "string" && /[T ]\\d{2}:\\d{2}/.test(kickoffRaw) ? new Date(kickoffRaw) : null;
+      const finalStatus = ["FT", "FINISHED", "FINAL", "AET", "PEN", "FULL_TIME", "FULLTIME", "STATUS_FINAL", "STATUS_FINISHED"].includes(status);
+      const validKickoff = kickoff && Number.isFinite(kickoff.getTime());
+      const date = validKickoff ? kickoff!.toISOString().slice(0, 10) : String(item?.date ?? "");
+      const resultSettled = Boolean(finalStatus && validKickoff && kickoff!.getTime() <= Date.now() + 15 * 60 * 1000 &&
+        Number.isSafeInteger(homeGoals) && homeGoals >= 0 && Number.isSafeInteger(awayGoals) && awayGoals >= 0);
+      return { ...item, homeTeam, awayTeam, status, homeGoals, awayGoals, date, resultSettled, source: "api-football" };
+    });
   }
 
   // 2. Verify remaining past fixtures against trusted score providers only.
@@ -1026,7 +1002,8 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; confli
     const providerResults = [
       ...(await fetchSportApiAiFixtures(date)),
       ...(await fetchSportmonksFixtures(date)),
-      ...(await fetchTheRundownFixtures(date))
+      ...(await fetchTheRundownFixtures(date)),
+      ...configuredApiScoreArray.filter((r: any) => r.date === date)
     ];
     for (let i = 0; i < updatedManifest.length; i++) {
       const match = updatedManifest[i];
