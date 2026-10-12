@@ -185,8 +185,15 @@ export async function fetchSportApiAiFixtures(dateStr: string): Promise<SportApi
     };
     return fixtures;
   } catch (err: any) {
-    providerDiagnostics = { ...providerDiagnostics, state: "request_error", lastErrorCode: "request_failed" };
-    console.error("SportAPI.ai fetch error:", err?.message || err);
+    const errorName = String(err?.name || "");
+    const errorCode = errorName === "TimeoutError" || errorName === "AbortError"
+      ? "request_timeout"
+      : errorName === "TypeError"
+        ? "network_error"
+        : "request_failed";
+    providerDiagnostics = { ...providerDiagnostics, state: "request_error", lastErrorCode: errorCode };
+    // Log the exception class and message only; never log request headers or API keys.
+    console.error("SportAPI.ai fetch error:", errorName || "Error", err?.message || "No error message");
     return [];
   }
 }
