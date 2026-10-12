@@ -12,6 +12,7 @@ import { simulateMatchup } from "./src/utils/footballMath";
 import { getVerifiedTeamSampleSize } from "./src/utils/verifiedTeamSamples";
 import { isValidIsoDate } from "./src/utils/isoDate";
 import { fetchSportApiAiFixtures, getSportApiAiProviderDiagnostics } from "./src/services/serverSportApiAi";
+import { fetchSportmonksFixtures, getSportmonksProviderDiagnostics } from "./src/services/serverSportmonks";
 import { fetchTheRundownFixtures, getTheRundownProviderDiagnostics } from "./src/services/serverTheRundown";
 import {
   getFixtures, saveFixtures,
@@ -293,6 +294,7 @@ function generatePreMatchPredictions(fixtures: any[]) {
 function sourcePriority(source: string | undefined): number {
   switch (source) {
     case "sportapi-ai": return 100;
+    case "sportmonks": return 98;
     case "therundown":
     case "custom-results-api": return 90;
     case "bookmaker-import":
@@ -1021,6 +1023,7 @@ async function runAutomaticResultsScan(): Promise<{ settledCount: number; messag
   for (const date of datesToVerify) {
     const providerResults = [
       ...(await fetchSportApiAiFixtures(date)),
+      ...(await fetchSportmonksFixtures(date)),
       ...(await fetchTheRundownFixtures(date))
     ];
     for (let i = 0; i < updatedManifest.length; i++) {
@@ -1347,6 +1350,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     providers: {
       apiFootballKeyConfigured: Boolean(process.env.API_FOOTBALL_KEY),
       sportApiAiKeyConfigured: Boolean(process.env.SPORTAPI_AI_KEY),
+      sportmonksKeyConfigured: Boolean(process.env.SPORTMONKS_API_KEY || process.env.SPORTMONKS_API_TOKEN),
       theRundownKeyConfigured: Boolean(process.env.THERUNDOWN_KEY),
       resultsEndpointConfigured: Boolean(configuredEndpoint),
       dataDirectoryConfigured: Boolean(process.env.DATA_DIR),
@@ -1357,6 +1361,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
     },
     providerHealth: {
       sportApiAi: getSportApiAiProviderDiagnostics(),
+      sportmonks: getSportmonksProviderDiagnostics(),
       theRundown: getTheRundownProviderDiagnostics(),
       note: "These are the latest in-process provider call results. A cold instance reports idle until a fixture request or scheduled ingest runs."
     },
@@ -1490,7 +1495,7 @@ function checkAndIncrementQuota(): boolean {
   return true;
 }
 
-// 3. API: Dynamic Fixtures Fetcher with SportAPI.ai (Primary) & TheRundown (Secondary) Priority
+// 3. API: Dynamic Fixtures Fetcher with SportAPI.ai + Sportmonks (Primary) and TheRundown (Secondary)
 app.get("/api/real-fixtures", async (req, res) => {
   const targetDate = (req.query.date as string) || getTodayDateStrServer();
   try {
@@ -1518,6 +1523,8 @@ app.get("/api/real-fixtures", async (req, res) => {
     const sources: string[] = [];
     const sportApiFixtures = await fetchSportApiAiFixtures(targetDate);
     if (sportApiFixtures.length) { providerResults.push(...sportApiFixtures); sources.push("sportapi-ai"); }
+    const sportmonksFixtures = await fetchSportmonksFixtures(targetDate);
+    if (sportmonksFixtures.length) { providerResults.push(...sportmonksFixtures); sources.push("sportmonks"); }
     const rundownFixtures = await fetchTheRundownFixtures(targetDate);
     if (rundownFixtures.length) { providerResults.push(...rundownFixtures); sources.push("therundown"); }
 
@@ -1562,7 +1569,7 @@ let cronStatusInfo = {
   lastIngestStatus: "Idle",
   lastSettlementTime: null as string | null,
   lastSettlementStatus: "Idle",
-  primaryProvider: "sportapi-ai",
+  primaryProvider: "sportapi-ai + sportmonks",
   secondaryProvider: "therundown"
 };
 
@@ -1578,9 +1585,10 @@ async function runScheduledIngestAndSettlement() {
     console.log(`[CRON] Running daily automated fixture ingestion for ${todayStr}...`);
     try {
       const primary = await fetchSportApiAiFixtures(todayStr);
+      const sportmonks = await fetchSportmonksFixtures(todayStr);
       const secondary = await fetchTheRundownFixtures(todayStr);
-      const fixtures = [...primary, ...secondary];
-      const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+      const fixtures = [...primary, ...sportmonks, ...secondary];
+      const sourceUsed = [primary.length ? "sportapi-ai" : "", sportmonks.length ? "sportmonks" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
       if (fixtures.length > 0) {
         const manifest = loadPersistedFixturesFromDisk();
         const merged = mergeServerSlates(manifest, fixtures);
@@ -1625,9 +1633,10 @@ app.post("/api/admin/run-ingest-now", async (req, res) => {
   try {
     const targetDate = req.body.date || getTodayDateStrServer();
     const primary = await fetchSportApiAiFixtures(targetDate);
+    const sportmonks = await fetchSportmonksFixtures(targetDate);
     const secondary = await fetchTheRundownFixtures(targetDate);
-    const fixtures = [...primary, ...secondary];
-    const sourceUsed = [primary.length ? "sportapi-ai" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
+    const fixtures = [...primary, ...sportmonks, ...secondary];
+    const sourceUsed = [primary.length ? "sportapi-ai" : "", sportmonks.length ? "sportmonks" : "", secondary.length ? "therundown" : ""].filter(Boolean).join("+") || "none";
     const manifest = loadPersistedFixturesFromDisk();
     const merged = mergeServerSlates(manifest, fixtures);
     saveFixturesToDisk(merged);
