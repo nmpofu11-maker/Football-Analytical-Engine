@@ -1,9 +1,6 @@
 /**
  * Canonical contracts and integrity gates for the unified football platform.
- *
- * This module deliberately contains no provider/network calls and no prediction
- * defaults. Unknown evidence stays unknown until a provider observation is
- * validated and attached to a canonical fixture.
+ * No provider/network calls and no fabricated defaults belong in this module.
  */
 
 export type EvidenceStatus = "verified" | "stale" | "conflict" | "invalid" | "missing";
@@ -79,11 +76,7 @@ export interface ModelVersion {
   trainingCutoffUtc: string;
   evaluationWindowStartUtc: string;
   evaluationWindowEndUtc: string;
-  metrics: {
-    logLoss?: number;
-    brierScore?: number;
-    sampleSize: number;
-  };
+  metrics: { logLoss?: number; brierScore?: number; sampleSize: number };
   approved: boolean;
 }
 
@@ -92,7 +85,8 @@ const isIsoDate = (value: string): boolean =>
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.test(value) &&
   Number.isFinite(Date.parse(value));
 
-/** Validate canonical identity without silently repairing malformed input. */
+const isUtcIsoDate = (value: string): boolean => isIsoDate(value) && value.endsWith("Z");
+
 export function validateCanonicalFixture(fixture: CanonicalFixture): string[] {
   const errors: string[] = [];
   if (!fixture.id.trim()) errors.push("fixture id is required");
@@ -101,31 +95,76 @@ export function validateCanonicalFixture(fixture: CanonicalFixture): string[] {
   if (fixture.homeTeamId === fixture.awayTeamId) errors.push("home and away team ids must differ");
   if (!fixture.competitionId.trim()) errors.push("competition id is required");
   if (!fixture.seasonId.trim()) errors.push("season id is required");
-  if (!isIsoDate(fixture.kickoffUtc)) errors.push("kickoff must be an ISO timestamp with timezone");
+  if (!isUtcIsoDate(fixture.kickoffUtc)) errors.push("kickoff must be a UTC ISO timestamp ending in Z");
   if (!fixture.status) errors.push("fixture status is required");
   return errors;
 }
 
-/**
- * A fallback identity for reconciliation only. It requires competition, season,
- * UTC kickoff and both teams; it is not a replacement for provider event IDs.
- */
+/** Fallback reconciliation key; provider event IDs remain the preferred identity. */
 export function canonicalFixtureKey(input: Pick<CanonicalFixture,
   "homeTeamId" | "awayTeamId" | "competitionId" | "seasonId" | "kickoffUtc"
 >): string | null {
   if (!input.homeTeamId.trim() || !input.awayTeamId.trim() ||
       !input.competitionId.trim() || !input.seasonId.trim() || !isIsoDate(input.kickoffUtc)) return null;
-  if (input.homeTeamId === input.awayTeamId) return null;
+  if (input.homeTeamId.trim().toLowerCase() === input.awayTeamId.trim().toLowerCase()) return null;
+  const normalizedKickoff = new Date(input.kickoffUtc).toISOString();
   return [
     input.competitionId.trim().toLowerCase(),
     input.seasonId.trim().toLowerCase(),
-    input.kickoffUtc,
+    normalizedKickoff,
     input.homeTeamId.trim().toLowerCase(),
     input.awayTeamId.trim().toLowerCase()
   ].join("|");
 }
 
-/** Probabilities must be finite, bounded, and sum to one within tolerance. */
+export function validateProvenance(provenance: Provenance): string[] {
+  const errors: string[] = [];
+  if (!provenance.provider.trim()) errors.push("provenance provider is required");
+  if (!isIsoDate(provenance.retrievedAt)) errors.push("provenance retrievedAt must be a timezone-aware ISO timestamp");
+  return errors;
+}
+
+export function validateProviderObservation<T>(observation: ProviderObservation<T>): string[] {
+  const errors: string[] = [];
+  if (!observation.fixtureId.trim()) errors.push("observation fixture id is required");
+  if (!observation.provider.trim()) errors.push("observation provider is required");
+  if (!isIsoDate(observation.retrievedAt)) errors.push("observation retrievedAt must be a timezone-aware ISO timestamp");
+  if (observation.status === "verified" && observation.value === undefined) errors.push("verified observation requires a value");
+  if (observation.status !== "verified" && observation.value === undefined && !observation.reason?.trim()) {
+    errors.push("non-verified observation without a value requires a reason");
+  }
+  errors.push(...validateProvenance(observation.provenance));
+  return errors;
+}
+
+export function validateMatchResult(result: MatchResult): string[] {
+  const errors: string[] = [];
+  if (!result.fixtureId.trim()) errors.push("result fixture id is required");
+  if (!Number.isInteger(result.homeGoals) || result.homeGoals < 0) errors.push("home goals must be a non-negative integer");
+  if (!Number.isInteger(result.awayGoals) || result.awayGoals < 0) errors.push("away goals must be a non-negative integer");
+  if (!isIsoDate(result.verifiedAt)) errors.push("result verifiedAt must be a timezone-aware ISO timestamp");
+  if (result.status !== "verified-final") errors.push("only verified final results may be settled");
+  if (result.provenance.length === 0) errors.push("result provenance is required");
+  for (const source of result.provenance) errors.push(...validateProvenance(source));
+  return errors;
+}
+
+export function validateOddsSnapshot(snapshot: OddsSnapshot): string[] {
+  const errors: string[] = [];
+  if (!snapshot.fixtureId.trim()) errors.push("odds fixture id is required");
+  if (!snapshot.market.trim()) errors.push("odds market is required");
+  if (!snapshot.bookmaker.trim()) errors.push("bookmaker is required");
+  if (!isIsoDate(snapshot.capturedAt)) errors.push("odds capturedAt must be a timezone-aware ISO timestamp");
+  const values = Object.values(snapshot.selectionOdds);
+  if (values.length === 0) errors.push("at least one market selection is required");
+  if (values.some(value => value !== null && (!Number.isFinite(value) || value <= 1))) {
+    errors.push("available decimal odds must be finite and greater than 1");
+  }
+  if (values.every(value => value === null)) errors.push("all market odds are missing");
+  errors.push(...validateProvenance(snapshot.provenance));
+  return errors;
+}
+
 export function validateProbabilityDistribution(
   probabilities: ProbabilityDistribution,
   tolerance = 0.005
@@ -136,12 +175,12 @@ export function validateProbabilityDistribution(
     errors.push("probabilities must be finite numbers between 0 and 1");
     return errors;
   }
-  const total = values.reduce((sum, value) => sum + value, 0);
-  if (Math.abs(total - 1) > tolerance) errors.push("home/draw/away probabilities must sum to 1");
+  if (Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > tolerance) {
+    errors.push("home/draw/away probabilities must sum to 1");
+  }
   return errors;
 }
 
-/** A prediction may not use information retrieved after its stated data cutoff. */
 export function validatePredictionSnapshot(prediction: PredictionSnapshot): string[] {
   const errors: string[] = [];
   if (!prediction.id.trim()) errors.push("prediction id is required");
@@ -159,13 +198,10 @@ export function validatePredictionSnapshot(prediction: PredictionSnapshot): stri
   if (prediction.evidenceStatus !== "withheld" && prediction.probabilities === null) {
     errors.push("non-withheld predictions require a probability distribution");
   }
-  if (prediction.probabilities) {
-    errors.push(...validateProbabilityDistribution(prediction.probabilities));
-  }
+  if (prediction.probabilities) errors.push(...validateProbabilityDistribution(prediction.probabilities));
   return errors;
 }
 
-/** Keep bet recommendations disabled until an approved model and odds exist. */
 export function canRecommendBet(input: {
   fixtureValid: boolean;
   evidenceFresh: boolean;
