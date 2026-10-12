@@ -8,6 +8,7 @@ type VerifiedResultRecord = {
   actualScore?: unknown;
   source?: unknown;
   verifiedAt?: unknown;
+  verificationStatus?: unknown;
 };
 
 const TRUSTED_PROVIDER_SOURCES = new Set([
@@ -36,6 +37,7 @@ export function getVerifiedTeamSampleSize(records: unknown, teamName: string, no
   for (const value of records) {
     if (!value || typeof value !== "object") continue;
     const record = value as VerifiedResultRecord;
+    if (String(record.verificationStatus || "").toLowerCase() === "conflict") continue;
     const home = typeof record.homeTeam === "string" ? normalizeTeamName(record.homeTeam) : "";
     const away = typeof record.awayTeam === "string" ? normalizeTeamName(record.awayTeam) : "";
     if (home !== target && away !== target) continue;
