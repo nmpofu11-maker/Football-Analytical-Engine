@@ -1486,6 +1486,7 @@ app.get("/api/diagnostics/evidence", (req, res) => {
   } catch {}
 
   const storageHealth = inspectStoragePath();
+  const preferredBackfillProviderConfigured = Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey() || Boolean(process.env.THERUNDOWN_KEY);
 
   return res.json({
     generatedAt: new Date().toISOString(),
@@ -1524,9 +1525,11 @@ app.get("/api/diagnostics/evidence", (req, res) => {
       canGenerateCalibratedPredictions: calibratedTeams.length > 0
     },
     backfill: {
-      configured: Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured,
+      configured: preferredBackfillProviderConfigured || (Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured),
+      preferredProvidersConfigured: Boolean(process.env.SPORTAPI_AI_KEY) || hasSportmonksKey(),
+      apiFootballFallbackConfigured: Boolean(process.env.API_FOOTBALL_KEY) && officialResultsEndpointConfigured,
       maximumDaysPerRequest: 14,
-      note: "Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
+      note: "Historical backfill prefers SportAPI.ai and Sportmonks, with TheRundown as a secondary fallback; API-Football remains optional. Historical imports are evidence records only; they do not create out-of-sample predictions or calibrate the model."
     },
     storage: {
       mode: storageHealth.mountedStorageDetected ? "mounted-filesystem" : "local-filesystem",
