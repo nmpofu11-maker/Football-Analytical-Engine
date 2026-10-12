@@ -175,7 +175,7 @@ export async function fetchSportmonksFixtures(dateStr: string): Promise<Sportmon
     lastHttpStatus: null, lastFixtureCount: 0, lastErrorCode: null, lastResponseTruncated: false,
   };
 
-  const base = (process.env.SPORTMONKS_BASE_URL || "https://api.sportmonks.com/v3/football").replace(/\\/+$/, "");
+  const base = (process.env.SPORTMONKS_BASE_URL || "https://api.sportmonks.com/v3/football").replace(/\/+$/, "");
   const key = (process.env.SPORTMONKS_API_KEY || process.env.SPORTMONKS_API_TOKEN || "").trim();
   const allRecords: any[] = [];
   const maxPages = 5;
